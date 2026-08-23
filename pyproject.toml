@@ -1,0 +1,64 @@
+[project]
+name = "nanoserve-llm"
+version = "0.1.0"
+description = "Local GenAI serving, load testing, and telemetry on constrained hardware (12GB RAM / 8GB VRAM)."
+readme = "README.md"
+authors = [
+    { name = "Ayman Aboghonim", email = "aymanaboghonim@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "prometheus-api-client>=0.7.2",
+    "pydantic-settings>=2.15.0",
+]
+
+[project.scripts]
+nanoserve-llm = "nanoserve_llm.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "ruff>=0.16.4",
+]
+eval = [
+    "deepeval>=4.1.10",
+]
+load = [
+    "locust>=2.46.3",
+]
+
+[tool.uv]
+# Only the `dev` group is synced by default; `load` and `eval` are opt-in via
+# `uv sync --all-groups` or `uv run --group <name>` (keeps the base env light).
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "evals"]
+markers = [
+    "e2e: tests that require a live model endpoint (NANOSERVE_EVAL_LIVE=1)",
+]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

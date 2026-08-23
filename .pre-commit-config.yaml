@@ -1,0 +1,45 @@
+# Pre-commit gate: lint, format, type-check, and unit-test before every commit.
+# Install with:  pre-commit install
+# Run manually:  pre-commit run --all-files
+#
+# Local hooks use `uv run` so the exact locked environment is used; the first
+# invocation after a fresh clone syncs the venv automatically.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in sync with the `ruff` version in the dev dependency group.
+    rev: v0.16.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        # uv.lock is a lockfile — large by design and must be committed.
+        exclude: ^uv\.lock$
+        args: [--maxkb=512]
+
+  # Local hooks: type checking and fast unit tests only. The e2e evaluation
+  # suite (evals/) is intentionally excluded — it needs a live endpoint and
+  # must never run inside a commit hook.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (type checks)
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+        args: [src/nanoserve_llm]
+
+      - id: pytest
+        name: pytest (fast unit tests)
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        args: ["-q", "tests"]
