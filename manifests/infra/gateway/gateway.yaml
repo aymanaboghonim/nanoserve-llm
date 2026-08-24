@@ -1,0 +1,27 @@
+# Gateway API platform objects for KServe LLMInferenceService (Phase 3).
+# Applied after the Gateway API + GIE CRDs and Envoy (AI) Gateway controllers
+# are installed (see manifests/infra/gateway-stack.sh).
+#
+# NOTE: gateway-api/ CRD YAMLs are vendored (pinned) under this directory; the
+# GatewayClass/Gateway/HTTPRoute below are hand-written and versioned here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: kserve-gateway-class
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: kserve-gateway
+  namespace: kserve
+spec:
+  gatewayClassName: kserve-gateway-class
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

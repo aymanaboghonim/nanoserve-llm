@@ -1,0 +1,28 @@
+# NanoServe k3s server configuration.
+# Deploy to: /etc/rancher/k3s/config.yaml  (installed by infra/bootstrap.sh)
+#
+# Fencing rationale (Blueprint Phase 2): prevent the Linux OOM killer from
+# terminating pods during the model memory-mapping phase. Two layers:
+#   1. Host-level: .wslconfig memory=12GB + swap=16GB (see infra/wslconfig.example)
+#   2. Kubelet-level: reserve 1Gi for the system and hard-evict when free RAM
+#      drops below 1Gi, so the kubelet reclaims before the kernel OOM killer
+#      has a chance to SIGKILL the vLLM pod.
+#
+# Only Traefik is disabled. servicelb (klipper-lb) is kept so the LB-type
+# Gateway (Phase 3/KServe) gets a NodePort; local-path provides PVCs for model
+# storage; metrics-server powers `kubectl top`.
+
+disable:
+  - traefik
+
+# Mark this node as the GPU node (matches device-plugin tolerations/labels).
+node-label:
+  - "gpu=true"
+
+# Let the default user read the kubeconfig without root (WSL convenience).
+write-kubeconfig-mode: "0644"
+
+# Kubelet fencing for the 12GB RAM budget.
+kubelet-arg:
+  - "system-reserved=memory=1Gi"
+  - "eviction-hard=memory.available<1Gi"

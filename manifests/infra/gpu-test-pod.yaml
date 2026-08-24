@@ -1,0 +1,32 @@
+# GPU smoke test pod — verifies the NVIDIA bridge end-to-end.
+# Uses the k3s auto-created `nvidia` RuntimeClass + device-plugin capacity.
+#
+#   kubectl apply -k manifests/infra   (from repo root)
+#   kubectl logs -n gpu-test -l app=gpu-test --tail=10
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-test
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-smoke
+  namespace: gpu-test
+  labels:
+    app: gpu-test
+spec:
+  restartPolicy: OnFailure
+  runtimeClassName: nvidia
+  containers:
+    - name: cuda-sample
+      image: nvcr.io/nvidia/k8s/cuda-sample:nbody
+      args: ["-gpu", "-benchmark"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+      env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "compute,utility"

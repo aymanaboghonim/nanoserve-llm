@@ -20,10 +20,19 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # Kubernetes manifests legitimately contain multiple YAML documents
+        # separated by `---`.
+        args: [--multi]
       - id: check-added-large-files
         # uv.lock is a lockfile — large by design and must be committed.
         exclude: ^uv\.lock$
         args: [--maxkb=512]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
 
   # Local hooks: type checking and fast unit tests only. The e2e evaluation
   # suite (evals/) is intentionally excluded — it needs a live endpoint and

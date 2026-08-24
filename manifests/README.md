@@ -1,15 +1,29 @@
 # Manifests (K3s / KServe infrastructure)
 
-Declarative Kubernetes source of truth. **Populated in Phases 2–4**; this
-directory is intentionally empty until the cluster exists.
+Declarative Kubernetes source of truth. Populated phase by phase.
 
-## Planned schema (from the Blueprint)
+## Schema
 
-| Subdirectory | Phase | Contents |
-| --- | --- | --- |
-| `infra/` | 2 | K3s bootstrap (containerd → NVIDIA Container Toolkit bridge), namespace, GPU resource fence |
-| `serving/` | 3 | KServe `LLMInferenceService` CRD targeting `Qwen/Qwen2.5-1.5B-Instruct-AWQ`, Gateway API routing, `--gpu-memory-utilization 0.5` |
-| `telemetry/` | 4 | Prometheus deployment + `ServiceMonitor` scraping vLLM `/metrics`, Grafana dashboards (TTFT, queue pressure) |
+| Subdirectory | Phase | Contents | Status |
+| --- | --- | --- | --- |
+| `infra/` | 2 | K3s bootstrap + GPU bridge + Gateway API platform stack | ✅ Populated |
+| `serving/` | 3 | KServe `LLMInferenceService` CRD targeting `Qwen/Qwen2.5-1.5B-Instruct-AWQ`, Gateway routing, `--gpu-memory-utilization 0.5` | Planned |
+| `telemetry/` | 4 | Prometheus + `ServiceMonitor` scraping vLLM `/metrics`, Grafana dashboards (TTFT, queue pressure) | Planned |
+
+## Phase 2 (`infra/`)
+
+| File | Purpose |
+| --- | --- |
+| `device-plugin.yaml` | NVIDIA device plugin DaemonSet → `nvidia.com/gpu` capacity |
+| `gpu-test-pod.yaml` | Smoke pod: `runtimeClassName: nvidia` + `nvidia.com/gpu: 1` |
+| `kustomization.yaml` | Bundle for `kubectl apply -k manifests/infra` |
+| `gateway-stack.sh` | cert-manager + Gateway API/GIE CRDs + Envoy (AI) Gateway + GatewayClass/Gateway |
+| `gateway/gateway.yaml` | `GatewayClass` + `Gateway` (LB, port 80) |
+| `gateway/hello.yaml` | Hello-world HTTPRoute (validates the stack) |
+| `gateway/gateway-api/` | Vendored, pinned CRD YAMLs (Gateway API v1.5.1 + GIE v1.5.0) |
+
+Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
+`k3s/config.yaml`, `install-clis.sh`, `bootstrap.sh`, `verify.sh`.
 
 ## Conventions
 
@@ -22,7 +36,7 @@ directory is intentionally empty until the cluster exists.
 ```
 manifests/
 ├── README.md
-├── infra/        # Phase 2
+├── infra/        # Phase 2: GPU bridge + Gateway API platform stack
 ├── serving/      # Phase 3
 └── telemetry/    # Phase 4
 ```

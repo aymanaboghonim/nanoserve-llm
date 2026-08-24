@@ -1,0 +1,47 @@
+# NanoServe WSL2 hardware fencing — template for the Windows host.
+#
+# Copy the parts you need into %UserProfile%\.wslconfig on the Windows host
+# (C:\Users\<you>\.wslconfig), then apply with:  wsl --shutdown
+#
+# Constraints per the Blueprint: 12GB RAM fence + >=16GB swap so the Linux OOM
+# killer never terminates pods during the model memory-mapping phase.
+#
+# NOTE: [experimental] keys require Windows 11 22H2+ (WSL >= 0.66.2).
+# networkingMode=mirrored makes WSL share the Windows network interfaces, so
+# k3s Service ports (e.g. the Gateway NodePort) are reachable via localhost.
+
+[wsl2]
+# Hard RAM fence for the WSL2 VM. Keep at 12GB to leave headroom for Windows.
+memory=12GB
+
+# CPU count for the VM (matches the host's 8 logical processors).
+processors=8
+
+# >=16GB swap is the blueprint's OOM-killer safety valve (burst buffer when the
+# model + KV-cache spike during memory-mapping). Default is only 25% of RAM.
+swap=16GB
+
+# Swap file lives on C: by default (%Temp%\swap.vhdx). Override if C: is tight:
+# swapFile=D:\\wsl\\swap.vhdx
+# swapFile=C:\\Users\\ayman.AYMAN\\AppData\\Local\\Temp\\wsl-swap.vhdx
+
+# Mirrored networking: WSL shares the Windows network stack (k3s services are
+# reachable from Windows via localhost). localhostForwarding is ignored in
+# mirrored mode (it's implied).
+networkingMode=mirrored
+localhostForwarding=true
+
+# REQUIRED for k3s v1.36+: boot the WSL kernel with cgroup v2 unified hierarchy.
+# Without this, the kubelet refuses to start ("kubelet is configured to not run
+# on a host using cgroup v1") and k3s crash-loops (systemd Restart=always).
+kernelCommandLine = cgroup_no_v1=all systemd.unified_cgroup_hierarchy=1
+
+# Not needed for a single-node local cluster; saves host CPU/VT-x overhead.
+nestedVirtualization=false
+
+[experimental]
+# Reclaim cached memory from the WSL2 VM gradually instead of hoarding it.
+autoMemoryReclaim=gradual
+
+# Keep the distro VHD sparse so it only grows as actually used.
+sparseVhd=true
