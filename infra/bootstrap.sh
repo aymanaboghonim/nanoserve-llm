@@ -53,6 +53,17 @@ else
     curl -sfL https://get.k3s.io | sh -
 fi
 
+# Ensure the k3s unit explicitly loads our config file. The installer does not
+# always bake INSTALL_K3S_EXEC into ExecStart; k3s auto-loads
+# /etc/rancher/k3s/config.yaml anyway, but being explicit is deterministic
+# (idempotent: skips if --config already present).
+if ! grep -q -- "--config /etc/rancher/k3s/config.yaml" /etc/systemd/system/k3s.service; then
+  echo "     patching k3s unit to load /etc/rancher/k3s/config.yaml explicitly"
+  sed -i 's|^ExecStart=/usr/local/bin/k3s \\|ExecStart=/usr/local/bin/k3s --config /etc/rancher/k3s/config.yaml \\|' \
+    /etc/systemd/system/k3s.service
+  systemctl daemon-reload
+fi
+
 echo "==> [4/4] Ensuring k3s auto-starts with WSL (systemd)"
 systemctl enable k3s >/dev/null 2>&1 || true
 

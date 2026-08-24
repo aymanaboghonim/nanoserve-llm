@@ -1,0 +1,52 @@
+# NVIDIA device plugin DaemonSet → exposes nvidia.com/gpu as node capacity.
+#
+# k3s-specific: the plugin container itself must run with the `nvidia`
+# RuntimeClass (auto-created by k3s when nvidia-container-runtime is present)
+# so it can see the GPU via the WSL2 paravirtualized driver (/usr/lib/wsl/lib).
+# Without this DaemonSet, pods requesting nvidia.com/gpu stay Pending forever.
+#
+#   kubectl apply -k manifests/infra
+#   kubectl -n kube-system get pods | grep nvidia
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      # k3s auto-creates this RuntimeClass; the plugin needs GPU access itself.
+      runtimeClassName: nvidia
+      priorityClassName: system-node-critical
+      nodeSelector:
+        gpu: "true"  # matches node-label from infra/k3s/config.yaml
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+      containers:
+        - name: nvidia-device-plugin-ctr
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.17.0
+          args:
+            - --fail-on-init-error=false
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins

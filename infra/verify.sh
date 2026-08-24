@@ -50,9 +50,7 @@ echo "--- [D] Gateway API stack ---"
 check "Gateway API CRDs installed" \
   kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1
 check "GIE CRDs installed" \
-  kubectl get crd inferencepools.gateway.envoyproxy.io >/dev/null 2>&1 \
-  || kubectl get crd inferencepool.gateway.envoyproxy.io >/dev/null 2>&1 \
-  || kubectl get crd inferencepool.gateway.networking.x-k8s.io >/dev/null 2>&1
+  kubectl get crd inferencepools.inference.networking.k8s.io >/dev/null 2>&1
 check "Envoy Gateway controller" kubectl get deploy -n envoy-gateway-system envoy-gateway >/dev/null 2>&1
 check "Envoy AI Gateway controller" kubectl get deploy -n envoy-ai-gateway-system >/dev/null 2>&1
 check "GatewayClass accepted" \

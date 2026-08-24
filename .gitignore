@@ -25,6 +25,9 @@ htmlcov/
 .locust/
 *.csv
 
+# Evaluation artifacts
+.deepeval/
+
 # Editor
 .vscode/
 .idea/

@@ -17,10 +17,9 @@ Declarative Kubernetes source of truth. Populated phase by phase.
 | `device-plugin.yaml` | NVIDIA device plugin DaemonSet → `nvidia.com/gpu` capacity |
 | `gpu-test-pod.yaml` | Smoke pod: `runtimeClassName: nvidia` + `nvidia.com/gpu: 1` |
 | `kustomization.yaml` | Bundle for `kubectl apply -k manifests/infra` |
-| `gateway-stack.sh` | cert-manager + Gateway API/GIE CRDs + Envoy (AI) Gateway + GatewayClass/Gateway |
+| `gateway-stack.sh` | cert-manager + Gateway API/GIE/llm-d CRDs (pinned remote manifests) + Envoy (AI) Gateway + GatewayClass/Gateway |
 | `gateway/gateway.yaml` | `GatewayClass` + `Gateway` (LB, port 80) |
 | `gateway/hello.yaml` | Hello-world HTTPRoute (validates the stack) |
-| `gateway/gateway-api/` | Vendored, pinned CRD YAMLs (Gateway API v1.5.1 + GIE v1.5.0) |
 
 Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
 `k3s/config.yaml`, `install-clis.sh`, `bootstrap.sh`, `verify.sh`.
