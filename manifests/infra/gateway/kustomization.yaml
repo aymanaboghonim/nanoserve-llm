@@ -1,0 +1,8 @@
+# Kustomize bundle for the Gateway API platform objects (Phase 2).
+#   kubectl apply -k manifests/infra/gateway
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - gateway.yaml   # GatewayClass + Gateway (LB, port 80)
+  - hello.yaml     # hello-world HTTPRoute + echo backend

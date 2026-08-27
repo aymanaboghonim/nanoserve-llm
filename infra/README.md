@@ -97,6 +97,10 @@ bash infra/verify.sh        # exit 0 = all green
 | NVIDIA device plugin | pinned in `device-plugin.yaml` | NVIDIA releases |
 
 ## Troubleshooting
+- **Gateway/hello route unreachable after a WSL restart** → WSL2 may reassign the
+  node IP. Resolve the current address dynamically:
+  `kubectl get gateway -n kserve kserve-gateway -o jsonpath='{.status.addresses[0].value}'`.
+  `infra/verify.sh` already does this.
 - **k3s crash-looping with clean exits (`NRestarts` climbing)** → cgroup v1. The
   k3s v1.36 kubelet requires cgroup v2: `journalctl -u k3s | grep cgroup` shows
   "kubelet is configured to not run on a host using cgroup v1". Fix: add
