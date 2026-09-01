@@ -1,0 +1,22 @@
+# AIServiceBackend for the cloud Tier-2 (DeepSeek).
+#
+# Envoy AI Gateway abstraction: wraps the Envoy Gateway `Backend` and adds
+# model-name routing (the AIGatewayRoute matches on model, e.g. "deepseek-chat").
+#
+# backendRef MUST be an Envoy Gateway Backend (kind=Backend,
+# group=gateway.envoyproxy.io) — CEL-validated; cannot point at a k8s Service.
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: AIServiceBackend
+metadata:
+  name: deepseek-backend
+  namespace: kserve
+spec:
+  backendRef:
+    group: gateway.envoyproxy.io
+    kind: Backend
+    name: deepseek-backend
+  # Model names served by this backend; used by AIGatewayRoute rules.
+  # DeepSeek's OpenAI-compatible API serves these models.
+  modelNames:
+    - deepseek-chat
+    - deepseek-reasoner

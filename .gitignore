@@ -28,6 +28,12 @@ htmlcov/
 # Evaluation artifacts
 .deepeval/
 
+# Tracing / benchmark artifacts
+*.otlp
+benchmark-*.csv
+*.trace
+otel-collector.log
+
 # Editor
 .vscode/
 .idea/

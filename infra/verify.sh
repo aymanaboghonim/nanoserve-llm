@@ -78,6 +78,18 @@ else
   info "gateway has no address yet — skipping hello route check"
 fi
 
+echo "--- [D2] Phase 2b: two-tier / traffic control / observability ---"
+check "AIGatewayRoute CRD" kubectl get crd aigatewayroutes.aigateway.envoyproxy.io >/dev/null 2>&1
+check "AIServiceBackend CRD" kubectl get crd aiservicebackends.aigateway.envoyproxy.io >/dev/null 2>&1
+check "QuotaPolicy CRD" kubectl get crd quotapolicies.aigateway.envoyproxy.io >/dev/null 2>&1
+check "BackendTrafficPolicy CRD" kubectl get crd backendtrafficpolicies.gateway.envoyproxy.io >/dev/null 2>&1
+check "OTel Collector deployed" kubectl get deploy -n kserve otel-collector >/dev/null 2>&1
+if kubectl get aigatewayroute kserve-ai-route -n kserve >/dev/null 2>&1; then
+  info "AIGatewayRoute kserve-ai-route present (local/cloud tiering)"
+else
+  info "AIGatewayRoute not yet applied (Phase 2b apply)"
+fi
+
 echo "--- [E] Persistence ---"
 check "k3s enabled on boot" systemctl is-enabled k3s
 check "systemd running" systemctl is-system-running || true

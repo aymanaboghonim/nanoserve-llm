@@ -28,6 +28,37 @@ Strict hardware fencing is required to prevent the Linux OOM killer from termina
 * **Extended scope:** the Gateway API platform stack (cert-manager + Gateway API v1.5.1 + GIE v1.5.0 + Envoy Gateway + Envoy AI Gateway) is pre-installed in Phase 2 so Phase 3 is purely KServe + the model. Validated: KServe v0.20's LLMInferenceService runs on Gateway API — no Knative/Istio.
 * Declarative k3s config (`/etc/rancher/k3s/config.yaml`, versioned in `infra/k3s/`) + `infra/verify.sh` gate + shellcheck in pre-commit.
 
+#### Phase 2b: Production Hardening, Two-Tier Routing & Observability
+
+Adds a hardening layer on top of the Phase 2 cluster: two-tier model routing
+(local vLLM / cloud DeepSeek), quota + admission control, shadow-testing,
+OpenTelemetry tracing, streaming latency benchmarking, an idempotent Makefile,
+and full Argo CD GitOps.
+
+* **Two-Tier Routing:** Per-model `AIGatewayRoute` rules — local model → GIE
+  `InferencePool` (k8s Service), cloud model → Envoy Gateway `Backend` +
+  `AIServiceBackend` (DeepSeek). Envoy AI Gateway's `AIServiceBackend.backendRef`
+  **must** be an Envoy `Backend` (CEL-validated); it cannot target a k8s Service,
+  and `InferencePool` + `AIServiceBackend` refs cannot mix in one rule.
+* **Traffic Control:** `QuotaPolicy` (per-user limits, model-aware), Envoy
+  `BackendTrafficPolicy` `RateLimit` + `AdmissionControl` (probabilistic shedding
+  when the local model saturates — protects the 4GB KV budget). `RequestBuffer`
+  is **not** used (incompatible with streaming `/v1/chat/completions`).
+* **Shadow Testing:** `RequestMirror` filter mirrors local-model requests to the
+  Tier-2 backend (fire-and-forget — responses ignored); it is **not** failover.
+* **Secrets:** DeepSeek API key in a k8s `Secret` sourced from gitignored `.env`
+  (never committed); `BackendTLSPolicy` secures Tier-2 egress.
+* **Observability:** Lightweight OpenTelemetry Collector (≈50-100MB) ingests
+  spans from `scripts/tracer.py` (OTel); `scripts/latency_benchmark.py` measures
+  streaming TTFT/ITL (correlates with Phase-4 `vllm:request_decode_time_seconds`).
+* **Makefile:** Idempotent targets (`install-clis`/`bootstrap`/`verify`/`apply`/
+  `benchmark`/`tracer`/`argo`), proper `.PHONY`.
+* **Argo CD (full):** Non-HA single-node install (`argoproj.io/v1alpha1`
+  Applications), local-path PVC, bootstrapped via app-of-apps. Argo CD 3.5 is
+  tested against Kubernetes v1.36 (our k3s). Costs ~300-500MB RAM — accepted.
+* **Hardening:** non-root `securityContext` (drop all caps, read-only rootfs) +
+  explicit `resources.requests/limits` on every manifest.
+
 #### Phase 3: The Serving Plane
 
 The deployment utilizes KServe's modern dual-track strategy to avoid Knative overhead.
@@ -50,3 +81,14 @@ Execute continuous stress testing against the deployed engine to validate stabil
 
 * **Load Testing:** Execute the Python `locust` suite against the deployed `/v1/chat/completions` endpoint, ramping up concurrent virtual users to benchmark throughput ceilings.
 * **Evaluation:** Run a programmatic evaluation suite (e.g., DeepEval) using deterministic scripts to assert correctness, structural integrity, and latency thresholds of the generated responses.
+
+#### Phase 6: GitOps Consolidation (Argo CD)
+
+Once Phases 2b-5 are stable, Argo CD manages the whole cluster declaratively.
+
+* **Bootstrap:** Argo CD installed (Phase 2b); app-of-apps Application tracks all
+  `manifests/` kustomize bundles (infra, serving, telemetry).
+* **Drift Detection:** Argo CD surfaces drift between Git and cluster state;
+  auto-sync optional per-app.
+* **Constraint:** ~300-500MB RAM for Argo control-plane — the first candidate to
+  trim if the 12GB fence tightens during Phase 3 model loading.

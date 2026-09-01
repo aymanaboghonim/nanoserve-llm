@@ -1,0 +1,35 @@
+# Two-tier model routing via Envoy AI Gateway AIGatewayRoute.
+#
+# Per-model rules (the audit correction): local model → GIE InferencePool;
+# cloud model → AIServiceBackend. The CRD forbids mixing pool + backend refs
+# in one rule, and AIServiceBackend.backendRef must be an Envoy Backend.
+#
+# The InferencePool (local vLLM, Phase 3) targets the k8s Service that KServe
+# creates for the LLMInferenceService.
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: AIGatewayRoute
+metadata:
+  name: kserve-ai-route
+  namespace: kserve
+spec:
+  parentRefs:
+    - name: kserve-gateway
+      namespace: kserve
+  rules:
+    # Tier 1 — local vLLM (GIE InferencePool over the KServe Service).
+    - name: local-qwen
+      matches:
+        - model: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+      backendRefs:
+        - name: kserve-inference-pool
+          namespace: kserve
+    # Tier 2 — cloud DeepSeek (AIServiceBackend → Envoy Backend).
+    - name: cloud-deepseek
+      matches:
+        - model: deepseek-chat
+        - model: deepseek-reasoner
+      backendRefs:
+        - group: aigateway.envoyproxy.io
+          kind: AIServiceBackend
+          name: deepseek-backend
+          namespace: kserve

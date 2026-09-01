@@ -18,6 +18,10 @@ metadata:
 spec:
   restartPolicy: OnFailure
   runtimeClassName: nvidia
+  securityContext:
+    runAsNonRoot: false  # nbody CUDA sample runs as root in the image
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: cuda-sample
       image: nvcr.io/nvidia/k8s/cuda-sample:nbody

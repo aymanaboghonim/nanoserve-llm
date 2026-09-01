@@ -27,12 +27,30 @@ spec:
       labels:
         app: hello
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: hello
           image: docker.io/hashicorp/http-echo:latest
           args: ["-text=hello from nanoserve", "-listen=:8080"]
           ports:
             - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

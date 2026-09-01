@@ -1,0 +1,34 @@
+# Envoy Gateway BackendTrafficPolicy — protect the saturated local model.
+#
+# Two mechanisms, correct roles:
+#   - RateLimit:         hard ceiling on requests to the local Tier-1 pool.
+#   - AdmissionControl:  probabilistic request rejection when the local model
+#                        is saturated (avg latency above threshold) — protects
+#                        the 4GB KV budget from a thundering herd.
+#
+# NOTE: RequestBuffer is intentionally NOT used — incompatible with streaming
+# /v1/chat/completions (Envoy docs).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: kserve-inference-policy
+  namespace: kserve
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: kserve-ai-route
+  rateLimit:
+    type: Global
+    global:
+      rules:
+        - limit:
+            requests: 100
+            unit: Minute
+    # default user key (per-IP); refined by QuotaPolicy for model-level.
+  admissionControl:
+    enabled: true
+    policy:
+      requestLimit:
+        averageLatencyThreshold: 5000ms
+      rejectionProbability: 50

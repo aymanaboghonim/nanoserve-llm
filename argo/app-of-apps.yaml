@@ -1,0 +1,48 @@
+# Argo CD app-of-apps — manages all NanoServe manifests declaratively.
+#
+# Each Application points at a kustomize bundle in the repo. Argo CD syncs the
+# cluster state from Git, surfacing drift. Add apps here as phases land:
+#   - infra      (Phase 2: device plugin, GPU smoke, gateway platform)
+#   - serving    (Phase 2b/3: two-tier route, quota, otel; later LLMInferenceService)
+#   - telemetry  (Phase 4)
+#
+# NOTE: the repo is local; for Argo to reach it, point `repoURL` at your Git
+# remote once published (Phase 6), or use a local git server. The placeholder
+# below assumes a GitHub remote.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nanoserve-infra
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ayman/nanoserve-llm.git
+    targetRevision: main
+    path: manifests/infra
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nanoserve-serving
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ayman/nanoserve-llm.git
+    targetRevision: main
+    path: manifests/serving
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kserve
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

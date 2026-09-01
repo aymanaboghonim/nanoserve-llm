@@ -1,0 +1,14 @@
+# Kustomize bundle for the Phase 2b/3 serving-plane manifests.
+#   kubectl apply -k manifests/serving
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - backend-deepseek.yaml        # Envoy Backend + BackendTLSPolicy (Tier 2)
+  - aiservicebackend-deepseek.yaml
+  - aigatewayroute.yaml          # two-tier per-model routing
+  - quotapolicy.yaml             # per-user limits
+  - backendtrafficpolicy.yaml    # RateLimit + AdmissionControl
+  - request-mirror-shadow.yaml   # shadow-test Tier 2
+  - otel-collector.yaml          # OTel Collector (tracing ingest)
+  # secret-deepseek.yaml is applied via `make secret` (never committed)
