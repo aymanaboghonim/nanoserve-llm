@@ -1,0 +1,26 @@
+# GIE InferencePool for the local vLLM model server (Phase 3).
+#
+# Selects the KServe LLMInferenceService predictor pods (label
+# serving.kserve.io/inferenceservice=qwen-llm) on port 8000. The llm-d EPP
+# (llm-d-epp Deployment) joins this pool via its endpointPickerRef; Envoy AI
+# Gateway routes InferencePool traffic to the EPP via ext-proc for
+# KV-cache/load-aware placement.
+#
+#   kubectl apply -f manifests/serving/inferencepool.yaml
+apiVersion: inference.networking.k8s.io/v1
+kind: InferencePool
+metadata:
+  name: kserve-inference-pool
+  namespace: kserve
+spec:
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: qwen-llm
+  targetPorts:
+    - number: 8000
+  endpointPickerRef:
+    group: ""
+    kind: Service
+    name: llm-d-epp
+    port:
+      number: 9002

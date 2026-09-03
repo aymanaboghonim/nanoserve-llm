@@ -1,0 +1,70 @@
+# LLMInferenceService — the serving plane's core (Phase 3).
+#
+# Serves Qwen2.5-1.5B-Instruct-AWQ via vLLM on the single RTX 3070.
+#   - model:  pvc://nanoserve-model-cache — weights are fetched HOST-SIDE
+#             (HF is throttled on this host) via infra/fetch-model.sh
+#             (Modelscope) + loaded into the PVC by infra/load-model-pvc.sh.
+#             The pod never downloads over the slow network.
+#   - vLLM:   pinned image, --gpu-memory-utilization 0.5 (4GB KV budget),
+#             --max-model-len tuned to fit, --served-model-name matches the
+#             KServe model name EXACTLY
+#   - router: referenced gateway (kserve-gateway) + scheduler.pool.ref
+#             (kserve-inference-pool, created by the llm-d EPP joining it)
+#   - nvidia RuntimeClass + gpu=true nodeSelector
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen-llm
+  namespace: kserve
+spec:
+  model:
+    uri: pvc://nanoserve-model-cache/Qwen2.5-1.5B-Instruct-AWQ
+    name: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+  # Pod labels drive the InferencePool selector (serving.kserve.io/inferenceservice).
+  labels:
+    app: qwen-llm
+    serving.kserve.io/inferenceservice: qwen-llm
+  replicas: 1
+  template:
+    # Flattened pod spec: pod-level fields sit directly under `template`.
+    runtimeClassName: nvidia
+    nodeSelector:
+      gpu: "true"
+    containers:
+      - name: main
+        image: vllm/vllm-openai:v0.10.1
+        args:
+          - --model
+          - /mnt/models
+          - --served-model-name
+          - Qwen/Qwen2.5-1.5B-Instruct-AWQ
+          - --gpu-memory-utilization
+          - "0.5"
+          - --max-model-len
+          - "4096"
+          - --enforce-eager
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "4"
+            memory: 8Gi
+            nvidia.com/gpu: "1"
+  router:
+    gateway:
+      refs:
+        - name: kserve-gateway
+          namespace: kserve
+    route:
+      http:
+        spec:
+          rules:
+            - timeouts:
+                request: "300s"
+                backendRequest: "300s"
+    scheduler:
+      pool:
+        ref:
+          name: kserve-inference-pool

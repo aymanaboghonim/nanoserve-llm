@@ -1,0 +1,21 @@
+# PersistentVolumeClaim for the locally-cached model weights.
+#
+# HuggingFace is throttled on this host, so weights are fetched host-side from
+# Modelscope into ~/.cache/nanoserve/models (see infra/fetch-model.sh), then
+# copied into this PVC. The LLMInferenceService mounts it via pvc:// so the
+# pod NEVER re-downloads over the slow network.
+#
+#   # one-time: populate the PVC from the host cache (see infra/load-model-pvc.sh)
+#   kubectl apply -f manifests/serving/model-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nanoserve-model-cache
+  namespace: kserve
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

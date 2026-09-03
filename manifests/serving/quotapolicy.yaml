@@ -1,11 +1,9 @@
-# Per-user quota limits via Envoy AI Gateway QuotaPolicy.
+# Per-user quota limits via Envoy AI Gateway QuotaPolicy (v1alpha1).
 #
 # targetRefs MUST reference AIServiceBackend resources (CEL-validated).
-# Applies a tokens-per-minute budget per consumer (identified by the
-# `x-user-id` / `x-consumer-group` header or model).
-#
-# The local Tier-1 model shares the 4GB KV budget — quotas protect it from a
-# single client saturating the KV cache.
+# Applies a token-bucket budget (duration + limit) per model via
+# perModelQuotas. The local Tier-1 model shares the 4GB KV budget — quotas
+# protect it from a single client saturating the KV cache.
 apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: QuotaPolicy
 metadata:
@@ -16,11 +14,10 @@ spec:
     - group: aigateway.envoyproxy.io
       kind: AIServiceBackend
       name: deepseek-backend
-  quota:
-    - name: per-user-tokens
-      model: deepseek-chat
-      # Budget: 100k tokens per minute per consumer (header `x-user-id`).
-      key: "x-user-id"
-      value: "100000"
-      window: 60s
-      unit: tokens
+  perModelQuotas:
+    - modelName: deepseek-chat
+      quota:
+        mode: Shared
+        defaultBucket:
+          duration: 1m
+          limit: 100

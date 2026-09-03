@@ -4,11 +4,23 @@
 # This is a Gateway API HTTPRoute filter: fire-and-forget (responses ignored).
 # It is NOT failover — it is shadow testing.
 #
-# NOTE: the AIGatewayRoute above is the primary route for chat completions.
-# This HTTPRoute attaches to the same Gateway listener and mirrors a
-# percentage of local-model requests to a dedicated mirror backend. In
-# production the mirror target would be a Sidecar/mock of DeepSeek to avoid
-# real cost; enable the real AIServiceBackend when validating.
+# Gateway API constraint: RequestMirror.backendRef must be a k8s Service with
+# a port (it cannot reference an AIServiceBackend). The mirror target is the
+# DeepSeek-facing echo Service below (replace with the real Tier-2 Service
+# when wiring live). In production point this at a mock/sidecar to avoid real
+# cloud cost while validating.
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepseek-mirror-svc
+  namespace: kserve
+spec:
+  selector:
+    app: deepseek-mirror
+  ports:
+    - port: 80
+      targetPort: 8080
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -27,12 +39,12 @@ spec:
         - type: RequestMirror
           requestMirror:
             backendRef:
-              group: aigateway.envoyproxy.io
-              kind: AIServiceBackend
-              name: deepseek-backend
+              name: deepseek-mirror-svc
               namespace: kserve
+              port: 80
             # Mirror 10% of requests for shadow testing.
             percent: 10
       backendRefs:
         - name: kserve-inference-pool
           namespace: kserve
+          port: 8000

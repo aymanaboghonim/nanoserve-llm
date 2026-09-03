@@ -4,33 +4,17 @@
 # (gateway.envoyproxy.io/v1alpha1 Backend) — it cannot reference a k8s Service.
 # See https://github.com/envoyproxy/ai-gateway/issues/902.
 #
-# The Authorization header value is fetched from the deepseek-api-key Secret
-# via Envoy Gateway's secret credential reference.
+# The Authorization header (DeepSeek API key) is injected by the gateway from
+# the deepseek-api-key Secret referenced via Envoy Gateway's secret credential
+# mechanism at the route level (see backendtrafficpolicy / secret-deepseek).
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: Backend
 metadata:
   name: deepseek-backend
   namespace: kserve
 spec:
+  type: Endpoints
   endpoints:
-    - host: api.deepseek.com
-      port: 443
-  tls:
-    caCertRefs: []  # system roots used; BackendTLSPolicy handles egress TLS
-  # Credential for the upstream call: the DeepSeek API key.
-  # Envoy Gateway injects this as the Authorization header.
-  appProtocol: http
----
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: BackendTLSPolicy
-metadata:
-  name: deepseek-backend-tls
-  namespace: kserve
-spec:
-  targetRefs:
-    - group: gateway.envoyproxy.io
-      kind: Backend
-      name: deepseek-backend
-  validation:
-    caCertificateRefs: []   # system roots (public CA)
-    hostname: api.deepseek.com
+    - fqdn:
+        hostname: api.deepseek.com
+        port: 443
