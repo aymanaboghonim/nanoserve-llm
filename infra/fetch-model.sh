@@ -26,11 +26,18 @@ echo "    model:   ${MODEL_ID}"
 echo "    source:  Modelscope (HF is throttled on this host)"
 echo "    dest:    ${DEST}"
 
-# If the safetensors weights already exist (non-empty), treat as cached.
-if [[ -f "${DEST}/model.safetensors" && -s "${DEST}/model.safetensors" ]]; then
-  echo "    ✓ model weights already cached — nothing to do (delete ${DEST} to force)."
-  du -sh "${DEST}" | awk '{print "    cache size:", $1}'
-  exit 0
+# If the safetensors weights already exist AND match the expected size,
+# treat as cached. (A partial download must NOT be treated as complete.)
+EXPECTED_SIZE="${EXPECTED_SIZE:-1614553840}"  # Qwen2.5-1.5B-Instruct-AWQ model.safetensors
+if [[ -f "${DEST}/model.safetensors" ]]; then
+  ACTUAL_SIZE="$(stat -c%s "${DEST}/model.safetensors" 2>/dev/null || echo 0)"
+  if [[ "${ACTUAL_SIZE}" -ge "${EXPECTED_SIZE}" ]]; then
+    echo "    ✓ model weights already cached (${ACTUAL_SIZE} bytes) — nothing to do."
+    du -sh "${DEST}" | awk '{print "    cache size:", $1}'
+    exit 0
+  else
+    echo "    ⚠ partial download (${ACTUAL_SIZE}/${EXPECTED_SIZE} bytes) — resuming..."
+  fi
 fi
 
 mkdir -p "${DEST}"
