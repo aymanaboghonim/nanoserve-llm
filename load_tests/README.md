@@ -19,12 +19,15 @@ Interactive (web UI at http://localhost:8089):
 uv run --group load locust -f load_tests/locustfile.py --host http://localhost:8000
 ```
 
-Headless with CSV output:
+Headless with CSV output (via the serving gateway):
 
 ```bash
+make load   # resolves the gateway LB, runs locust headless 8u/1/s/2m
+
+# or manually:
 uv run --group load locust -f load_tests/locustfile.py \
-  --host http://localhost:8000 \
-  --headless -u 8 -r 1 -t 1m --csv .locust/run
+  --host http://$(kubectl get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}') \
+  --headless -u 8 -r 1 -t 2m --csv .locust/run
 ```
 
 ## Configuration

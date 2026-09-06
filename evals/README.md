@@ -25,9 +25,14 @@ uv run --group eval pytest evals -v
 # -> 13 skipped (e2e: requires a live endpoint; set NANOSERVE_EVAL_LIVE=1)
 ```
 
-With a live endpoint:
+With a live endpoint (via the serving gateway — exercises Envoy + EPP):
 
 ```bash
+make eval   # resolves the gateway LB, sets NANOSERVE_BASE_URL/NANOSERVE_EVAL_LIVE, runs pytest
+
+# or manually:
+export NANOSERVE_BASE_URL=http://<gateway-ip>/v1
+#   e.g. export NANOSERVE_BASE_URL=$(kubectl get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}')/v1
 export NANOSERVE_EVAL_LIVE=1
 uv run --group eval pytest evals -v
 ```

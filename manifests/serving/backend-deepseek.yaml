@@ -1,12 +1,17 @@
-# Envoy Gateway `Backend` for the cloud Tier-2 (DeepSeek OpenAI-compatible API).
+# Envoy Gateway `Backend` + `BackendTLSPolicy` for the cloud Tier-2
+# (DeepSeek OpenAI-compatible API).
 #
 # Envoy AI Gateway's `AIServiceBackend.backendRef` REQUIRES this kind
 # (gateway.envoyproxy.io/v1alpha1 Backend) — it cannot reference a k8s Service.
 # See https://github.com/envoyproxy/ai-gateway/issues/902.
 #
-# The Authorization header (DeepSeek API key) is injected by the gateway from
-# the deepseek-api-key Secret referenced via Envoy Gateway's secret credential
-# mechanism at the route level (see backendtrafficpolicy / secret-deepseek).
+# The Authorization header (DeepSeek API key) is injected by the AI Gateway from
+# the deepseek-api-key Secret (applied via `make secret` from gitignored .env).
+#
+# The BackendTLSPolicy is REQUIRED for TLS origination: without it Envoy opens a
+# cleartext connection to api.deepseek.com:443 and the handshake terminates
+# (HTTP 503 "upstream connect error ... connection termination"). System CA +
+# SNI hostname makes the outbound TLS work out of the box.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: Backend
 metadata:
@@ -18,3 +23,17 @@ spec:
     - fqdn:
         hostname: api.deepseek.com
         port: 443
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: deepseek-backend
+  namespace: kserve
+spec:
+  targetRefs:
+    - group: gateway.envoyproxy.io
+      kind: Backend
+      name: deepseek-backend
+  validation:
+    hostname: api.deepseek.com
+    wellKnownCACertificates: System

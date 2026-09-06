@@ -1,0 +1,24 @@
+# EAG BackendSecurityPolicy — inject the DeepSeek API key upstream.
+#
+# Envoy AI Gateway authenticates the gateway → DeepSeek by injecting the API key
+# into the `Authorization` header of outbound requests. The key comes from the
+# deepseek-api-key Secret (applied via `make secret` from gitignored .env; the
+# Secret key MUST be named `apiKey` — EAG errors otherwise).
+#
+# WITHOUT this policy the gateway forwards requests with NO auth header and
+# DeepSeek answers 401 "Authentication Fails (governor)". (The TLS-origination
+# half lives in backend-deepseek.yaml's BackendTLSPolicy.)
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: BackendSecurityPolicy
+metadata:
+  name: deepseek-backend
+  namespace: kserve
+spec:
+  type: APIKey
+  apiKey:
+    secretRef:
+      name: deepseek-api-key
+  targetRefs:
+    - group: aigateway.envoyproxy.io
+      kind: AIServiceBackend
+      name: deepseek-backend

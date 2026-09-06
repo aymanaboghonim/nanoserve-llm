@@ -35,11 +35,20 @@ def _completion(client, settings: Settings, prompt: str) -> str:
 def _g_eval_score(prompt: str, answer: str, judge_model, settings: Settings) -> float:
     """Run G-Eval with the served LLM as judge; return the raw score."""
     from deepeval.metrics import GEval
+    from deepeval.metrics.g_eval.utils import SingleTurnParams
     from deepeval.test_case import LLMTestCase
 
+    # deepeval >= 4.1 requires `evaluation_params` (the test-case fields the
+    # judge should consider); `criteria`/`evaluation_steps` stay optional.
     metric = GEval(
         name="Quality",
+        evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
         criteria=CRITERIA,
+        evaluation_steps=[
+            "Assess whether the answer is clear, well-structured, and easy to understand.",
+            "Assess whether the answer is factually correct and directly addresses the question.",
+            "Penalize vague, off-topic, or incorrect answers.",
+        ],
         model=judge_model,
         threshold=settings.eval.threshold,
         async_mode=False,

@@ -5,10 +5,13 @@ kind: Kustomization
 
 resources:
   - backend-deepseek.yaml        # Envoy Backend + BackendTLSPolicy (Tier 2)
+  - backendsecuritypolicy-deepseek.yaml  # EAG API-key injection (Tier 2 auth)
   - aiservicebackend-deepseek.yaml
   - aigatewayroute.yaml          # two-tier per-model routing
   - quotapolicy.yaml             # per-user limits
-  - backendtrafficpolicy.yaml    # RateLimit + AdmissionControl
+  # backendtrafficpolicy.yaml    # DISABLED: kserve-inference-policy targets the
+  #                               # deleted kserve-shadow-route (orphaned) and
+  #                               # caps 60 req/min — would throttle load tests.
   # request-mirror-shadow.yaml   # disabled until shadow phase (see file header)
   - otel-collector.yaml          # OTel Collector (tracing ingest)
   - llm-d-epp.yaml               # llm-d Endpoint Picker (pool router)

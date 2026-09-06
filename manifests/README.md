@@ -29,20 +29,22 @@ Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
 | File | Purpose |
 | --- | --- |
 | `aigatewayroute.yaml` | Two-tier per-model routing (local InferencePool / cloud AIServiceBackend) |
-| `backend-deepseek.yaml` | Envoy `Backend` + `BackendTLSPolicy` for DeepSeek egress |
+| `backend-deepseek.yaml` | Envoy `Backend` + `BackendTLSPolicy` (System CA) for DeepSeek egress TLS |
+| `backendsecuritypolicy-deepseek.yaml` | EAG `BackendSecurityPolicy` (APIKey) — injects the DeepSeek key upstream |
 | `aiservicebackend-deepseek.yaml` | Envoy AI Gateway backend wrapper (model names) |
 | `quotapolicy.yaml` | Per-user token quota on the Tier-2 backend |
-| `backendtrafficpolicy.yaml` | RateLimit + AdmissionControl (protects local model) |
-| `request-mirror-shadow.yaml` | RequestMirror shadow-test of Tier 2 (fire-and-forget) |
+| `backendtrafficpolicy.yaml` | RateLimit + AdmissionControl (protects local model) — **disabled** (orphaned) |
+| `request-mirror-shadow.yaml` | RequestMirror shadow-test of Tier 2 (fire-and-forget) — **disabled** |
 | `otel-collector.yaml` | OpenTelemetry Collector (trace ingest) |
-| `secret-deepseek.yaml` | DeepSeek key template — applied via `make secret` (gitignored) |
+| `secret-deepseek.yaml` | DeepSeek key template — applied via `make secret` (gitignored); key MUST be `apiKey` |
 
 > **Disabled:** `request-mirror-shadow.yaml` is intentionally left out of
 > `kustomization.yaml` and `make apply` during the Phase 3 validation — its
 > `/v1/chat/completions` path overlaps the LLMISVC-generated route and, with a
 > bare Service backendRef, made Envoy Gateway 500 that path. The pool backendRef
 > in the file is already GIE-correct (`group`+`kind`) — re-enable for the
-> shadow/mirror phase.
+> shadow/mirror phase. `backendtrafficpolicy.yaml` targets the deleted shadow
+> route (orphaned) and caps 60 req/min — re-enable only with the shadow route.
 
 ## Phase 4 (`telemetry/`)
 

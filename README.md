@@ -11,7 +11,7 @@ KServe's `LLMInferenceService` CRD managing the vLLM engine natively.
 | 2b | Two-tier routing, traffic control, shadow-testing, OTel, Argo CD | ✅ Complete |
 | 3 | Serving plane (KServe `LLMInferenceService` + vLLM, Gateway API) | ✅ Complete |
 | 4 | Telemetry & observability (Prometheus + Grafana) | ✅ Complete |
-| 5 | Load generation & evaluation (Locust + DeepEval) | Planned |
+| 5 | Load generation & evaluation (Locust + DeepEval) | ✅ Complete |
 
 See [`Blueprint.md`](Blueprint.md) for the full architecture.
 

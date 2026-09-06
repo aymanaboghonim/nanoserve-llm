@@ -127,6 +127,28 @@ Execute continuous stress testing against the deployed engine to validate stabil
 * **Load Testing:** Execute the Python `locust` suite against the deployed `/v1/chat/completions` endpoint, ramping up concurrent virtual users to benchmark throughput ceilings.
 * **Evaluation:** Run a programmatic evaluation suite (e.g., DeepEval) using deterministic scripts to assert correctness, structural integrity, and latency thresholds of the generated responses.
 
+**Implementation Notes (audit, Phase 5):**
+
+* All load/eval runs target the **serving gateway** (Envoy → EPP → pool), NOT the
+  pod directly — that is the real deployment path. `make eval` / `make load` /
+  `make bench` resolve the LB address dynamically and default to it.
+* Validation results (2026-09-07): DeepEval contract + quality suite green via
+  gateway (self-judged G-Eval on the served Qwen); streaming benchmark TTFT
+  ~38ms / ITL ~15ms / ~67 tok/s; Locust smoke 8 users / 2 min = **355 requests,
+  0 failures**, ~3 req/s, p50 600ms / p95 720ms. No vLLM/gateway restarts.
+* **Tier-2 (DeepSeek) required two missing pieces** to work end-to-end:
+  1. `BackendTLSPolicy` (`gateway.networking.k8s.io/v1`, NOT `v1alpha3` — the
+     Gateway API v1.5.1 CRD only serves `v1`) on the Envoy `Backend` with
+     `wellKnownCACertificates: System` + SNI hostname. Without it Envoy opens
+     cleartext to :443 → 503.
+  2. EAG `BackendSecurityPolicy` (`type: APIKey`) referencing the Secret — and
+     the Secret key MUST be named `apiKey` (EAG: "secret … does not contain key
+     apiKey"). Without it the gateway forwards no `Authorization` header → 401.
+  Verified: `curl` via gateway with `x-ai-eg-model: deepseek-chat` → 200.
+* Known harmless EPP log line under load: "Request latency values are invalid
+  for TPOT calculation" — fires when a generation ends at/just after the first
+  token (very short `max_tokens`); non-fatal, request still 200.
+
 #### Phase 6: GitOps Consolidation (Argo CD)
 
 Once Phases 2b-5 are stable, Argo CD manages the whole cluster declaratively.

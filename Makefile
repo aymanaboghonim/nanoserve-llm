@@ -7,8 +7,10 @@
 #   make loadpvc  # copy cached model weights into the nanoserve-model-cache PVC
 #   make secret   # render the DeepSeek Secret from gitignored .env
 #   make serve    # status of the LLMInferenceService / vLLM pod
-#   make bench    # streaming TTFT/ITL benchmark (needs live endpoint)
-#   make trace    # OTel span emitter (needs live endpoint + collector)
+#   make bench    # streaming TTFT/ITL benchmark (defaults to serving gateway)
+#   make eval     # DeepEval contract + quality suite via the serving gateway
+#   make load     # Locust smoke via the serving gateway (8u/1/s/2m)
+#   make trace    # OTel span emitter (defaults to serving gateway + collector)
 #   make telemetry    # apply Phase 4 Prometheus + Grafana manifests
 #   make secret-grafana  # apply the Grafana admin Secret from gitignored .env
 #   make argo     # install Argo CD (full, non-HA)
@@ -18,7 +20,7 @@ SHELL := /bin/bash
 KUBECTL ?= kubectl
 PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: install-clis bootstrap verify apply model loadpvc secret serve bench trace telemetry secret-grafana argo check clean
+.PHONY: install-clis bootstrap verify apply model loadpvc secret serve bench eval load trace telemetry secret-grafana argo check clean
 
 install-clis:           ## Install kubectl/helm/yq into ~/.local/bin (no root)
 	bash infra/install-clis.sh
@@ -38,9 +40,8 @@ apply:                  ## Apply serving-plane manifests (idempotent)
 	$(KUBECTL) apply -f manifests/serving/aiservicebackend-deepseek.yaml
 	$(KUBECTL) apply -f manifests/serving/aigatewayroute.yaml
 	$(KUBECTL) apply -f manifests/serving/quotapolicy.yaml
-	$(KUBECTL) apply -f manifests/serving/backendtrafficpolicy.yaml
-	# request-mirror-shadow.yaml is disabled (see its header): its
-	# /v1/chat/completions match overlaps the LLMISVC route.
+	# backendtrafficpolicy.yaml is DISABLED (orphaned target, 60 req/min cap)
+	# and request-mirror-shadow.yaml (overlaps the LLMISVC route) — see headers.
 	$(KUBECTL) apply -f manifests/serving/otel-collector.yaml
 	@echo "✔ serving-plane manifests applied"
 
@@ -73,10 +74,34 @@ secret-grafana:         ## Render the Grafana admin Secret from .env (gitignored
 	@sed 's/CHANGE_ME/'"$$GRAFANA_ADMIN_PASSWORD"'/' manifests/telemetry/grafana-secret.yaml | $(KUBECTL) apply -f -
 	@echo "✔ grafana-admin Secret applied (password not logged)"
 
-bench:                  ## Streaming TTFT/ITL benchmark (needs live endpoint)
+bench:                  ## Streaming TTFT/ITL benchmark (defaults to serving gateway)
+	@GW=$$($(KUBECTL) get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); \
+	if [ -n "$$GW" ] && ! echo '$(BENCH_ARGS)' | grep -q -- '--url'; then \
+	  export NANOSERVE_BASE_URL="http://$$GW/v1"; echo "==> bench via http://$$GW/v1"; \
+	fi; \
 	uv run --group dev python scripts/latency_benchmark.py $(BENCH_ARGS)
 
-trace:                  ## Emit OTel spans to the collector (needs live endpoint)
+eval:                   ## DeepEval contract + quality suite via the serving gateway
+	@GW=$$($(KUBECTL) get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); \
+	test -n "$$GW" || { echo "error: kserve-gateway has no address (is it Programmed?)"; exit 1; }; \
+	echo "==> evals via http://$$GW/v1 (NANOSERVE_EVAL_LIVE=1)"; \
+	NANOSERVE_BASE_URL="http://$$GW/v1" NANOSERVE_EVAL_LIVE=1 \
+	  uv run --group eval pytest evals -v $(EVAL_ARGS)
+
+load:                   ## Locust smoke via the serving gateway (defaults 8u/1/s/2m)
+	@GW=$$($(KUBECTL) get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); \
+	test -n "$$GW" || { echo "error: kserve-gateway has no address (is it Programmed?)"; exit 1; }; \
+	mkdir -p .locust; \
+	echo "==> locust via http://$$GW (-u 8 -r 1 -t 2m; override with LOCUST_ARGS=...)"; \
+	uv run --group load locust -f load_tests/locustfile.py \
+	  --host "http://$$GW" \
+	  --headless -u 8 -r 1 -t 2m --csv .locust/run $(LOCUST_ARGS)
+
+trace:                  ## Emit OTel spans to the collector (defaults to serving gateway)
+	@GW=$$($(KUBECTL) get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); \
+	if [ -n "$$GW" ] && ! echo '$(TRACE_ARGS)' | grep -q -- '--url'; then \
+	  export NANOSERVE_BASE_URL="http://$$GW/v1"; echo "==> trace via http://$$GW/v1"; \
+	fi; \
 	uv run --group dev python scripts/tracer.py $(TRACE_ARGS)
 
 argo:                   ## Install Argo CD (full, non-HA) + bootstrap app-of-apps
