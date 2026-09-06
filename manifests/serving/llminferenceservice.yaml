@@ -1,10 +1,9 @@
 # LLMInferenceService — the serving plane's core (Phase 3).
 #
 # Serves Qwen2.5-1.5B-Instruct-AWQ via vLLM on the single RTX 3070.
-#   - model:  pvc://nanoserve-model-cache — weights are fetched HOST-SIDE
-#             (HF is throttled on this host) via infra/fetch-model.sh
-#             (Modelscope) + loaded into the PVC by infra/load-model-pvc.sh.
-#             The pod never downloads over the slow network.
+#   - model:  pvc://nanoserve-model-cache — a static hostPath PV pointing at
+#             the host-side model cache (~/.cache/nanoserve/models, fetched by
+#             infra/fetch-model.sh). No download in the pod, no provisioner.
 #   - vLLM:   pinned image, --gpu-memory-utilization 0.5 (4GB KV budget),
 #             --max-model-len tuned to fit, --served-model-name matches the
 #             KServe model name EXACTLY
@@ -18,7 +17,7 @@ metadata:
   namespace: kserve
 spec:
   model:
-    uri: pvc://nanoserve-model-cache/Qwen2.5-1.5B-Instruct-AWQ
+    uri: pvc://nanoserve-model-cache
     name: Qwen/Qwen2.5-1.5B-Instruct-AWQ
   # Pod labels drive the InferencePool selector (serving.kserve.io/inferenceservice).
   labels:
@@ -26,23 +25,31 @@ spec:
     serving.kserve.io/inferenceservice: qwen-llm
   replicas: 1
   template:
-    # Flattened pod spec: pod-level fields sit directly under `template`.
+    # The well-known config (kserve-config-llm-template) supplies the
+    # llm-d-cuda image + `vllm serve /mnt/models --served-model-name ...`
+    # entrypoint (a bash script ending in `... ${VLLM_ADDITIONAL_ARGS} $@`) +
+    # non-root securityContext. The image's NGC entrypoint intercepts the
+    # container `command`, so extra vLLM flags MUST be passed via the
+    # VLLM_ADDITIONAL_ARGS env var (NOT container args — those become a bare
+    # `--` that the NGC entrypoint tries to exec).
     runtimeClassName: nvidia
     nodeSelector:
       gpu: "true"
     containers:
       - name: main
-        image: vllm/vllm-openai:v0.10.1
-        args:
-          - --model
-          - /mnt/models
-          - --served-model-name
-          - Qwen/Qwen2.5-1.5B-Instruct-AWQ
-          - --gpu-memory-utilization
-          - "0.5"
-          - --max-model-len
-          - "4096"
-          - --enforce-eager
+        env:
+          - name: VLLM_ADDITIONAL_ARGS
+            # Hardware fence: 4GB KV budget on the RTX 3070.
+            # max_model_len 2048 = Qwen2.5-1.5B max_position_embeddings.
+            value: "--gpu-memory-utilization 0.5 --max-model-len 2048 --enforce-eager"
+          # Triton JIT fix (WSL2): the engine compiles a CUDA util + top-k kernel
+          # at startup; gcc's link step (-L/usr/lib64) can't find libcuda.so.1,
+          # which lives in /usr/local/cuda-13.0/compat. LIBRARY_PATH makes gcc
+          # find it at link time without writing to the read-only /usr/lib64.
+          - name: LIBRARY_PATH
+            value: "/usr/local/cuda-13.0/compat"
+          # VLLM_USE_V1=0 did NOT bypass the Triton compile in this vLLM build —
+          # kept off; LIBRARY_PATH is the actual fix.
         resources:
           requests:
             cpu: "2"
@@ -64,6 +71,17 @@ spec:
             - timeouts:
                 request: "300s"
                 backendRequest: "300s"
+              # Local Tier-1 backend = the GIE InferencePool. KServe copies
+              # this route spec verbatim when scheduler.pool.ref is an EXTERNAL
+              # pool (no auto-injection of pool backendRefs in that mode).
+              # group+kind are REQUIRED so Envoy AI Gateway resolves the ref as
+              # an InferencePool (not a k8s Service) and marks the pool
+              # Accepted in its status.parents.
+              backendRefs:
+                - group: inference.networking.k8s.io
+                  kind: InferencePool
+                  name: kserve-inference-pool
+                  weight: 1
     scheduler:
       pool:
         ref:

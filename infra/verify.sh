@@ -90,6 +90,37 @@ else
   info "AIGatewayRoute not yet applied (Phase 2b apply)"
 fi
 
+echo "--- [D3] Phase 3: KServe serving plane ---"
+check "KServe LLMIsvc CRDs" kubectl get crd llminferenceservices.serving.kserve.io >/dev/null 2>&1
+check "LLMISVC controller" kubectl get deploy -n kserve llmisvc-controller-manager >/dev/null 2>&1
+check "LWS controller" kubectl get deploy -n lws-system lws-controller-manager >/dev/null 2>&1
+check "well-known configs present" \
+  kubectl get llminferenceserviceconfig -n kserve kserve-config-llm-template >/dev/null 2>&1
+check "llm-d EPP running" kubectl get deploy -n kserve llm-d-epp >/dev/null 2>&1
+check "InferencePool exists" kubectl get inferencepool -n kserve kserve-inference-pool >/dev/null 2>&1
+if kubectl get llmisvc qwen-llm -n kserve >/dev/null 2>&1; then
+  LLM_READY="$(kubectl get llmisvc qwen-llm -n kserve \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)"
+  if [[ "${LLM_READY}" = "True" ]]; then
+    pass "LLMInferenceService qwen-llm Ready"
+  else
+    info "LLMInferenceService qwen-llm present (Ready=${LLM_READY:-unknown}; model may still be downloading)"
+  fi
+  check "KServe model HTTPRoute Accepted" \
+    test "$(kubectl get httproute qwen-llm-kserve-route -n kserve \
+      -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
+else
+  info "LLMInferenceService qwen-llm not applied yet"
+fi
+check "DeepSeek AIServiceBackend Accepted" \
+  test "$(kubectl get aiservicebackend deepseek-backend -n kserve \
+    -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
+
+echo "--- [D4] Phase 3/G: Argo CD ---"
+check "Argo Applications CRD" kubectl get crd applications.argoproj.io >/dev/null 2>&1
+check "Argo server" kubectl get deploy -n argocd argocd-server >/dev/null 2>&1
+check "Argo repo-server" kubectl get deploy -n argocd argocd-repo-server >/dev/null 2>&1
+
 echo "--- [E] Persistence ---"
 check "k3s enabled on boot" systemctl is-enabled k3s
 check "systemd running" systemctl is-system-running || true

@@ -1,71 +1,96 @@
 #!/usr/bin/env bash
 # NanoServe model cache downloader.
 #
-# HuggingFace is pathologically slow from this host (~1 KB/s), so model
-# weights are fetched from Modelscope (which mirrors Qwen et al. and sustains
-# ~100+ KB/s) into a LOCAL CACHE. The KServe storage-initializer then mounts
-# this cache (pvc://) instead of re-downloading over HF in the pod.
+# HuggingFace's plain CDN is throttled on this host (~1 KB/s), but the
+# token-signed AWS Xet-bridge URL is fast (~400 KB/s/conn) AND parallelizes
+# (~1.5 MB/s aggregate). This fetches model weights from HF via the signed URL
+# with parallel range connections into a LOCAL CACHE. KServe mounts this cache
+# (pvc://) instead of re-downloading in the pod.
 #
-# Reproducible: idempotent — if the model files already exist in the cache,
-# this exits 0 without downloading. Run `bash infra/fetch-model.sh` to
-# populate/refresh ~/.cache/nanoserve/models/<model>.
+# Reproducible / idempotent: if model.safetensors already matches the expected
+# size, this exits 0 without downloading. Partial downloads are resumed.
+#
+# Token: read from $HF_TOKEN (export it in your shell, or put HF_TOKEN=... in
+# a gitignored .env). NEVER commit the token.
 #
 # Usage:
-#   bash infra/fetch-model.sh                          # default model
-#   MODEL_ID=Qwen/Qwen2.5-1.5B-Instruct-AWQ bash infra/fetch-model.sh
+#   export HF_TOKEN=hf_xxx   # in your shell (never in the repo)
+#   bash infra/fetch-model.sh
 set -euo pipefail
 
 MODEL_ID="${MODEL_ID:-Qwen/Qwen2.5-1.5B-Instruct-AWQ}"
-REVISION="${REVISION:-master}"
 CACHE_ROOT="${NANOSERVE_MODEL_CACHE:-${HOME}/.cache/nanoserve/models}"
 DEST="${CACHE_ROOT}/${MODEL_ID}"
-BASE_URL="https://modelscope.cn/models/${MODEL_ID}/resolve/${REVISION}"
+HF_BASE="https://huggingface.co/${MODEL_ID}/resolve/main"
+CONNS="${CONNS:-8}"   # parallel range connections
 
 echo "==> NanoServe model fetch"
-echo "    model:   ${MODEL_ID}"
-echo "    source:  Modelscope (HF is throttled on this host)"
-echo "    dest:    ${DEST}"
+echo "    model:  ${MODEL_ID}"
+echo "    source: HuggingFace (token-signed Xet-bridge, ${CONNS} parallel conns)"
+echo "    dest:   ${DEST}"
 
-# If the safetensors weights already exist AND match the expected size,
-# treat as cached. (A partial download must NOT be treated as complete.)
-EXPECTED_SIZE="${EXPECTED_SIZE:-1614553840}"  # Qwen2.5-1.5B-Instruct-AWQ model.safetensors
-if [[ -f "${DEST}/model.safetensors" ]]; then
-  ACTUAL_SIZE="$(stat -c%s "${DEST}/model.safetensors" 2>/dev/null || echo 0)"
-  if [[ "${ACTUAL_SIZE}" -ge "${EXPECTED_SIZE}" ]]; then
-    echo "    ✓ model weights already cached (${ACTUAL_SIZE} bytes) — nothing to do."
-    du -sh "${DEST}" | awk '{print "    cache size:", $1}'
-    exit 0
-  else
-    echo "    ⚠ partial download (${ACTUAL_SIZE}/${EXPECTED_SIZE} bytes) — resuming..."
-  fi
+if [[ -z "${HF_TOKEN:-}" ]]; then
+  echo "error: HF_TOKEN not set (export HF_TOKEN=hf_xxx in your shell first)." >&2
+  exit 1
 fi
 
 mkdir -p "${DEST}"
 
-echo "==> Fetching file manifest..."
-FILES="$(
-  timeout 20 curl -s \
-    "https://modelscope.cn/api/v1/models/${MODEL_ID}/repo/files?Revision=${REVISION}&Recursive=true" \
-  | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-for f in d.get('Data',{}).get('Files',[]):
-    p=f.get('Path','')
-    if not p.startswith('.') and p != 'README.md':
-        print(p)
-"
-)"
+# Expected size of the main weights file (bytes). Update if the model changes.
+EXPECTED_SIZE="${EXPECTED_SIZE:-1614553840}"
 
-echo "==> Downloading ${MODEL_ID} (resumable; Ctrl-C safe — re-run to continue)..."
-for f in ${FILES}; do
-  mkdir -p "${DEST}/$(dirname "${f}")"
-  echo "    ${f}"
-  # --continue resumes partial downloads; --tries for transient failures.
-  wget -q --continue --tries=5 --timeout=30 \
-    -O "${DEST}/${f}" "${BASE_URL}/${f}"
+# Idempotent: if the weights exist AND match the expected size, we're done.
+if [[ -f "${DEST}/model.safetensors" ]]; then
+  ACTUAL="$(stat -c%s "${DEST}/model.safetensors" 2>/dev/null || echo 0)"
+  if [[ "${ACTUAL}" -ge "${EXPECTED_SIZE}" ]]; then
+    echo "    ✓ model weights already cached (${ACTUAL} bytes) — nothing to do."
+    du -sh "${DEST}" | awk '{print "    cache size:", $1}'
+    exit 0
+  else
+    echo "    ⚠ partial (${ACTUAL}/${EXPECTED_SIZE}) — re-downloading full file via parallel conns."
+  fi
+fi
+
+echo "==> Fetching signed URL (token)..."
+SIGNED="$(
+  curl -sI -H "Authorization: Bearer ${HF_TOKEN}" "${HF_BASE}/model.safetensors" \
+  | grep -i "^location:" | sed 's/^[Ll]ocation: //' | tr -d '\r'
+)"
+if [[ -z "${SIGNED}" ]]; then
+  echo "error: could not obtain signed URL (token invalid?)" >&2
+  exit 1
+fi
+echo "    signed URL OK (${#SIGNED} chars)"
+
+echo "==> Downloading model.safetensors (${CONNS} parallel range conns)..."
+rm -f "${DEST}/model.safetensors.part-"*
+CHUNK=$((EXPECTED_SIZE / CONNS))
+for i in $(seq 0 $((CONNS - 1))); do
+  START=$((i * CHUNK))
+  END=$((i == CONNS - 1 ? EXPECTED_SIZE - 1 : START + CHUNK - 1))
+  ( curl -s --retry 5 --retry-delay 2 \
+      -o "${DEST}/model.safetensors.part-${i}" \
+      -r "${START}-${END}" "${SIGNED}" ) &
+done
+wait
+cat "${DEST}"/model.safetensors.part-* > "${DEST}/model.safetensors"
+rm -f "${DEST}/model.safetensors.part-"*
+
+# Verify the stitched file size.
+if [[ "$(stat -c%s "${DEST}/model.safetensors")" -lt "${EXPECTED_SIZE}" ]]; then
+  echo "error: stitched size mismatch — re-run to retry." >&2
+  exit 1
+fi
+echo "    ✓ model.safetensors complete ($(stat -c%s "${DEST}/model.safetensors") bytes)"
+
+echo "==> Fetching config/tokenizer files..."
+for f in config.json generation_config.json tokenizer.json tokenizer_config.json \
+         merges.txt vocab.json; do
+  curl -s --retry 3 -o "${DEST}/${f}" "${HF_BASE}/${f}" || true
 done
 
 echo "==> Done."
 du -sh "${DEST}" | awk '{print "    cache size:", $1}'
-echo "    Cache is loaded. Point the LLMInferenceService storageUri at:"
-echo "    pvc://nanoserve-model-cache/$(basename "${MODEL_ID}")"
+echo "    Load into the PVC next:"
+echo "    bash infra/load-model-pvc.sh"
+echo "    (LLMInferenceService already references pvc://nanoserve-model-cache)"

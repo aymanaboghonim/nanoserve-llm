@@ -9,7 +9,7 @@ resources:
   - aigatewayroute.yaml          # two-tier per-model routing
   - quotapolicy.yaml             # per-user limits
   - backendtrafficpolicy.yaml    # RateLimit + AdmissionControl
-  - request-mirror-shadow.yaml   # shadow-test Tier 2
+  # request-mirror-shadow.yaml   # disabled until shadow phase (see file header)
   - otel-collector.yaml          # OTel Collector (tracing ingest)
   - llm-d-epp.yaml               # llm-d Endpoint Picker (pool router)
   - inferencepool.yaml           # GIE InferencePool (local vLLM pods)
