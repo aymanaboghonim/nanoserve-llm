@@ -1,0 +1,17 @@
+# Kustomize bundle for Phase 4 telemetry (plain Prometheus + Grafana).
+#   kubectl apply -k manifests/telemetry
+#   make secret-grafana        # apply the admin Secret from gitignored .env
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - prometheus-config.yaml
+  - prometheus.yaml
+  - grafana-datasource.yaml
+  - grafana-dashboards-provider.yaml
+  - grafana-dashboards.yaml
+  - grafana.yaml
+  - grafana-route.yaml
+  # grafana-secret.yaml is applied via `make secret-grafana` (never committed
+  # with a real password; template committed but the make target renders it).

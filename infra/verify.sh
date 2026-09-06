@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NanoServe Phases 2/2b/3 — verification gate.
+# NanoServe Phases 2/2b/3/4 — verification gate.
 # Exit code 0 = all checks pass. Prints a summary either way.
 # Usage:  bash infra/verify.sh
 set -uo pipefail
@@ -14,7 +14,7 @@ check() { # check <description> <command...>
   if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
 }
 
-echo "==> NanoServe verification (Phases 2/2b/3)"
+echo "==> NanoServe verification (Phases 2/2b/3/4)"
 echo
 
 echo "--- [A] Host fencing (.wslconfig / swap) ---"
@@ -146,6 +146,39 @@ echo "--- [D4] Phase 3/G: Argo CD ---"
 check "Argo Applications CRD" kubectl get crd applications.argoproj.io >/dev/null 2>&1
 check "Argo server" kubectl get deploy -n argocd argocd-server >/dev/null 2>&1
 check "Argo repo-server" kubectl get deploy -n argocd argocd-repo-server >/dev/null 2>&1
+
+echo "--- [D5] Phase 4: Telemetry (Prometheus + Grafana) ---"
+if kubectl get deploy -n monitoring prometheus >/dev/null 2>&1; then
+  check "Prometheus deploy" kubectl get deploy -n monitoring prometheus >/dev/null 2>&1
+  check "Prometheus svc" kubectl get svc -n monitoring prometheus >/dev/null 2>&1
+  # Health + scrape via the apiserver proxy (no port-forward needed).
+  PROM_HEALTH="$(kubectl get --raw \
+    '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/-/healthy' 2>/dev/null)"
+  check "Prometheus healthy (proxy /-/healthy)" \
+    bash -c "grep -q 'Prometheus Server is Healthy' <<<'${PROM_HEALTH}'"
+  check "scrape target vllm UP" \
+    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"vllm\"'"
+  check "scrape target llm-d-epp UP" \
+    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"llm-d-epp\"'"
+  # KV-cache metric must be scraped (Blueprint-critical).
+  check "kv_cache_usage_perc scraped" \
+    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/query?query=vllm%3Akv_cache_usage_perc' 2>/dev/null | grep -q 'kv_cache_usage_perc'"
+  check "Grafana deploy" kubectl get deploy -n monitoring grafana >/dev/null 2>&1
+  check "Grafana svc" kubectl get svc -n monitoring grafana >/dev/null 2>&1
+  check "Grafana HTTPRoute Accepted" \
+    test "$(kubectl get httproute grafana -n monitoring \
+      -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
+  if [[ -n "${GW_ADDR:-}" ]]; then
+    GF_CODE="$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
+      -H 'Host: grafana.192.168.1.2.nip.io' \
+      "http://${GW_ADDR}/api/health" 2>/dev/null)"
+    check "Grafana /api/health 200 via gateway" test "${GF_CODE}" = "200"
+  else
+    info "no gateway address — skipping Grafana route check"
+  fi
+else
+  info "Phase 4 telemetry not applied yet (run: make telemetry)"
+fi
 
 echo "--- [E] Persistence ---"
 check "k3s enabled on boot" systemctl is-enabled k3s

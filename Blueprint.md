@@ -97,6 +97,29 @@ vLLM emits native metrics without requiring code changes or sidecar instrumentat
 * **Critical Telemetry:** Track `vllm:kv_cache_usage_perc` (to monitor memory saturation) and `vllm:request_decode_time_seconds` (for inter-token generation latency).
 * **Visualization:** Provision Grafana to render dashboards visualizing Time-To-First-Token (TTFT) and concurrent queue pressure.
 
+**Implementation Notes (audit, Phase 4):**
+
+* Deployed as **plain Prometheus + Grafana** in a dedicated `monitoring`
+  namespace — the Blueprint's `ServiceMonitor` implies the Prometheus Operator,
+  which would add ~0.5-1GB (operator + CRDs + kube-state-metrics) to a box that
+  is already ~5GB into its 12GB fence. With exactly two scrape jobs (vLLM
+  `/metrics`, llm-d EPP `/metrics`), a static `prometheus.yml` is the right-sized
+  choice. **To adopt ServiceMonitors later**, swap in the operator and the
+  ServiceMonitor CRD — dashboards and queries are unchanged.
+* vLLM is scraped via `qwen-llm-kserve-workload-svc.kserve:8000/metrics`
+  (same-namespace ClusterIP; no TLS). TSDB is a 2Gi local-path PVC with 3-day
+  retention (bounded disk; enough for TTFT/decode/kv-cache panels).
+* Grafana is served through the shared `kserve-gateway` on a hostname route:
+  `http://grafana.192.168.1.2.nip.io` (nip.io wildcard → the LB address). The
+  Gateway listener allows cross-namespace routes, so the `monitoring`-ns
+  HTTPRoute attaches without gateway changes. Admin credentials come from a
+  gitignored `.env` via `make secret-grafana` (never committed).
+* Metric families verified against this vLLM build's live `/metrics` export:
+  `vllm:kv_cache_usage_perc`, `vllm:num_requests_running/waiting`,
+  `vllm:time_to_first_token_seconds` (histogram),
+  `vllm:request_decode_time_seconds` (histogram). Dashboards use these exact
+  names.
+
 #### Phase 5: Load Generation & Evaluation
 
 Execute continuous stress testing against the deployed engine to validate stability under load.

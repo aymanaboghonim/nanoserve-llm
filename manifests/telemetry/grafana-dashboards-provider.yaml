@@ -1,0 +1,19 @@
+# Grafana dashboard provider — points Grafana at the mounted dashboard files.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: nanoserve
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: true
+        editable: true
+        allowUiUpdates: false
+        options:
+          path: /var/lib/grafana/dashboards

@@ -9,6 +9,8 @@
 #   make serve    # status of the LLMInferenceService / vLLM pod
 #   make bench    # streaming TTFT/ITL benchmark (needs live endpoint)
 #   make trace    # OTel span emitter (needs live endpoint + collector)
+#   make telemetry    # apply Phase 4 Prometheus + Grafana manifests
+#   make secret-grafana  # apply the Grafana admin Secret from gitignored .env
 #   make argo     # install Argo CD (full, non-HA)
 #   make check    # pre-commit gate (lint/format/type/test/shellcheck)
 
@@ -16,7 +18,7 @@ SHELL := /bin/bash
 KUBECTL ?= kubectl
 PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: install-clis bootstrap verify apply model loadpvc secret serve bench trace argo check clean
+.PHONY: install-clis bootstrap verify apply model loadpvc secret serve bench trace telemetry secret-grafana argo check clean
 
 install-clis:           ## Install kubectl/helm/yq into ~/.local/bin (no root)
 	bash infra/install-clis.sh
@@ -58,6 +60,18 @@ secret:                 ## Render the DeepSeek Secret from .env (gitignored)
 	@test -n "$$DEEPSEEK_API_KEY" || { echo "error: DEEPSEEK_API_KEY not set in .env"; exit 1; }
 	@sed 's/CHANGE_ME/'"$$DEEPSEEK_API_KEY"'/' manifests/serving/secret-deepseek.yaml | $(KUBECTL) apply -f -
 	@echo "✔ deepseek Secret applied (key not logged)"
+
+telemetry:              ## Apply Phase 4 telemetry manifests (Prometheus + Grafana)
+	$(KUBECTL) apply -k manifests/telemetry
+	@echo "✔ telemetry manifests applied"
+	@echo "  next: make secret-grafana  (admin Secret from .env)"
+	@echo "  UI:   http://grafana.192.168.1.2.nip.io"
+
+secret-grafana:         ## Render the Grafana admin Secret from .env (gitignored)
+	@test -f .env || { echo "error: .env missing (copy .env.example, set GRAFANA_ADMIN_PASSWORD)"; exit 1; }
+	@test -n "$$GRAFANA_ADMIN_PASSWORD" || { echo "error: GRAFANA_ADMIN_PASSWORD not set in .env"; exit 1; }
+	@sed 's/CHANGE_ME/'"$$GRAFANA_ADMIN_PASSWORD"'/' manifests/telemetry/grafana-secret.yaml | $(KUBECTL) apply -f -
+	@echo "✔ grafana-admin Secret applied (password not logged)"
 
 bench:                  ## Streaming TTFT/ITL benchmark (needs live endpoint)
 	uv run --group dev python scripts/latency_benchmark.py $(BENCH_ARGS)

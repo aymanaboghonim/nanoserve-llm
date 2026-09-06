@@ -1,0 +1,10 @@
+# Phase 4 telemetry namespace.
+#
+#   kubectl apply -k manifests/telemetry
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: nanoserve
+    nanoserve.io/phase: "4"

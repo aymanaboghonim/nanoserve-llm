@@ -1,0 +1,22 @@
+# Grafana via the serving gateway — hostname-routed on the shared Envoy
+# Gateway (kserve-gateway, listener allows routes from any namespace).
+#
+#   http://grafana.192.168.1.2.nip.io   (nip.io -> 192.168.1.2)
+#   curl -H 'Host: grafana.192.168.1.2.nip.io' http://192.168.1.2/api/health
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-gateway
+      namespace: kserve
+  hostnames:
+    - grafana.192.168.1.2.nip.io
+  rules:
+    - backendRefs:
+        - name: grafana
+          port: 3000
