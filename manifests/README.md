@@ -7,7 +7,7 @@ Declarative Kubernetes source of truth. Populated phase by phase.
 | Subdirectory | Phase | Contents | Status |
 | --- | --- | --- | --- |
 | `infra/` | 2 | K3s bootstrap + GPU bridge + Gateway API platform stack | ✅ Populated |
-| `serving/` | 2b/3 | Two-tier routing, quota/admission, OTel, DeepSeek Tier-2; later KServe `LLMInferenceService` | ✅ 2b populated (3 planned) |
+| `serving/` | 2b/3 | Two-tier routing, quota/admission, OTel, DeepSeek Tier-2; KServe `LLMInferenceService` | ✅ 2b/3 populated (LLMISVC Ready; gateway 200 via InferencePool) |
 | `telemetry/` | 4 | Prometheus + `ServiceMonitor` scraping vLLM `/metrics`, Grafana dashboards (TTFT, queue pressure) | Planned |
 
 ## Phase 2 (`infra/`)
@@ -37,6 +37,13 @@ Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
 | `otel-collector.yaml` | OpenTelemetry Collector (trace ingest) |
 | `secret-deepseek.yaml` | DeepSeek key template — applied via `make secret` (gitignored) |
 
+> **Disabled:** `request-mirror-shadow.yaml` is intentionally left out of
+> `kustomization.yaml` and `make apply` during the Phase 3 validation — its
+> `/v1/chat/completions` path overlaps the LLMISVC-generated route and, with a
+> bare Service backendRef, made Envoy Gateway 500 that path. The pool backendRef
+> in the file is already GIE-correct (`group`+`kind`) — re-enable for the
+> shadow/mirror phase.
+
 ## Conventions
 
 - Every YAML is validated by pre-commit (`check-yaml`) before commit.
@@ -49,6 +56,6 @@ Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
 manifests/
 ├── README.md
 ├── infra/        # Phase 2: GPU bridge + Gateway API platform stack
-├── serving/      # Phase 3
+├── serving/      # Phases 2b/3: two-tier routing + KServe LLMInferenceService
 └── telemetry/    # Phase 4
 ```

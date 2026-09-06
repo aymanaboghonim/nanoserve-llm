@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NanoServe Phase 2 — verification gate.
+# NanoServe Phases 2/2b/3 — verification gate.
 # Exit code 0 = all checks pass. Prints a summary either way.
 # Usage:  bash infra/verify.sh
 set -uo pipefail
@@ -14,7 +14,7 @@ check() { # check <description> <command...>
   if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
 }
 
-echo "==> NanoServe Phase 2 verification"
+echo "==> NanoServe verification (Phases 2/2b/3)"
 echo
 
 echo "--- [A] Host fencing (.wslconfig / swap) ---"
@@ -106,9 +106,35 @@ if kubectl get llmisvc qwen-llm -n kserve >/dev/null 2>&1; then
   else
     info "LLMInferenceService qwen-llm present (Ready=${LLM_READY:-unknown}; model may still be downloading)"
   fi
+  # Routing-wiring assertions — regression guards for the GIE fix: the route
+  # must backendRef the pool as an InferencePool (group+kind), the pool must be
+  # Accepted by the gateway, and the service must report ready routing.
+  check "LLMISVC InferencePoolReady=True" \
+    test "$(kubectl get llmisvc qwen-llm -n kserve \
+      -o jsonpath='{.status.conditions[?(@.type=="InferencePoolReady")].status}' 2>/dev/null)" = "True"
+  check "LLMISVC RouterReady=True" \
+    test "$(kubectl get llmisvc qwen-llm -n kserve \
+      -o jsonpath='{.status.conditions[?(@.type=="RouterReady")].status}' 2>/dev/null)" = "True"
   check "KServe model HTTPRoute Accepted" \
     test "$(kubectl get httproute qwen-llm-kserve-route -n kserve \
       -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
+  check "HTTPRoute backendRef is GIE InferencePool" \
+    test "$(kubectl get httproute qwen-llm-kserve-route -n kserve \
+      -o jsonpath='{.spec.rules[0].backendRefs[0].group}/{.spec.rules[0].backendRefs[0].kind}' 2>/dev/null)" = "inference.networking.k8s.io/InferencePool"
+  check "InferencePool accepted by gateway (parents Accepted)" \
+    test "$(kubectl get inferencepool kserve-inference-pool -n kserve \
+      -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
+  if [[ -n "${GW_ADDR:-}" ]]; then
+    # Full-path E2E: gateway -> InferencePool -> EPP ext-proc -> vLLM pod.
+    # The model name must match vLLM's --served-model-name exactly (-AWQ suffix).
+    LLM_CHAT_CODE="$(curl -s -m 60 -o /dev/null -w '%{http_code}' \
+      -H 'Content-Type: application/json' \
+      -d '{"model":"Qwen/Qwen2.5-1.5B-Instruct-AWQ","messages":[{"role":"user","content":"ping"}],"max_tokens":8}' \
+      "http://${GW_ADDR}/v1/chat/completions" 2>/dev/null)"
+    check "gateway E2E chat returns 200 (${GW_ADDR})" test "${LLM_CHAT_CODE}" = "200"
+  else
+    info "no gateway address — skipping E2E chat check"
+  fi
 else
   info "LLMInferenceService qwen-llm not applied yet"
 fi

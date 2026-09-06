@@ -67,6 +67,28 @@ The deployment utilizes KServe's modern dual-track strategy to avoid Knative ove
 * **Resource Deployment:** Apply the `LLMInferenceService` manifest targeting a quantized ~1.5B parameter model (e.g., Qwen2.5-1.5B-AWQ).
 * **Engine Tuning:** Expose vLLM's OpenAI-compatible endpoint with `--gpu-memory-utilization 0.5` to rigidly cap VRAM consumption at 4GB, reserving capacity for the KV-cache.
 
+**Implementation Notes (audit, Phase 3):**
+
+* With an EXTERNAL `scheduler.pool.ref` (user-managed `InferencePool`), KServe
+  v0.20 copies `router.route.http.spec` VERBATIM — it does NOT auto-inject a
+  pool backendRef (that only happens for KServe-managed pools). The route rule
+  must therefore carry the pool backendRef explicitly:
+  `group: inference.networking.k8s.io`, `kind: InferencePool`, `name:
+  kserve-inference-pool` (no `port` — the pool's `targetPorts[0]: 8000` defines
+  it). Without it, Envoy Gateway 500s ("0 weight") and Envoy AI Gateway never
+  writes `InferencePool.status.parents[].Accepted` → LLMISVC stuck at
+  `InferencePoolReady=False` ("no Gateway controller has accepted it yet").
+* KServe is pure control-plane: traffic flows client → Envoy Gateway → (Envoy
+  AI Gateway GIE extension) → InferencePool → llm-d EPP (ext-proc, KV-cache /
+  load-aware pick) → vLLM pod. Request model names must equal vLLM's
+  `--served-model-name` exactly (e.g. `Qwen/Qwen2.5-1.5B-Instruct-AWQ`).
+* vLLM flags must be passed via the `VLLM_ADDITIONAL_ARGS` env (the preset's NGC
+  entrypoint swallows container args). WSL2 Triton JIT needs
+  `LIBRARY_PATH=/usr/local/cuda-13.0/compat` so gcc links libcuda at startup.
+* Shadow/mirror HTTPRoutes must not share `/v1/chat/completions` with the
+  LLMISVC route, and any InferencePool backendRef needs group+kind (a bare
+  Service ref 500s).
+
 #### Phase 4: Telemetry & Observability
 
 vLLM emits native metrics without requiring code changes or sidecar instrumentation.

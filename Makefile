@@ -37,7 +37,8 @@ apply:                  ## Apply serving-plane manifests (idempotent)
 	$(KUBECTL) apply -f manifests/serving/aigatewayroute.yaml
 	$(KUBECTL) apply -f manifests/serving/quotapolicy.yaml
 	$(KUBECTL) apply -f manifests/serving/backendtrafficpolicy.yaml
-	$(KUBECTL) apply -f manifests/serving/request-mirror-shadow.yaml
+	# request-mirror-shadow.yaml is disabled (see its header): its
+	# /v1/chat/completions match overlaps the LLMISVC route.
 	$(KUBECTL) apply -f manifests/serving/otel-collector.yaml
 	@echo "✔ serving-plane manifests applied"
 

@@ -6,9 +6,10 @@ KServe's `LLMInferenceService` CRD managing the vLLM engine natively.
 
 | Phase | Focus | Status |
 | --- | --- | --- |
-| 1 | Repository orchestration & tooling (this repo) | ✅ In progress |
-| 2 | Infrastructure bootstrap (WSL2 + K3s + NVIDIA bridge) | Planned |
-| 3 | Serving plane (KServe `LLMInferenceService` + vLLM, Gateway API) | Planned |
+| 1 | Repository orchestration & tooling (this repo) | ✅ Complete |
+| 2 | Infrastructure bootstrap (WSL2 + K3s + NVIDIA bridge) | ✅ Complete |
+| 2b | Two-tier routing, traffic control, shadow-testing, OTel, Argo CD | ✅ Complete |
+| 3 | Serving plane (KServe `LLMInferenceService` + vLLM, Gateway API) | ✅ Complete |
 | 4 | Telemetry & observability (Prometheus + Grafana) | Planned |
 | 5 | Load generation & evaluation (Locust + DeepEval) | Planned |
 
