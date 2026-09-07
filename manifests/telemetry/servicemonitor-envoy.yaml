@@ -1,0 +1,49 @@
+# ServiceMonitors for the Envoy Gateway data plane + ratelimit server.
+#
+#   - envoy:      proxy stats (:19001) -> envoy_http_downstream_rq_429/400/413
+#                 (gateway-level rejection counters, incl. rate-limit 429s)
+#   - envoy-ratelimit: ratelimit server (:19001) -> ratelimit_service_rate_limit_total
+#                 (number of rate-limit decisions / rejections)
+# Both carry `release: prometheus-operator` so the operator-managed Prometheus
+# picks them up.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: envoy-gateway
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app: envoy-gateway
+spec:
+  jobLabel: app
+  endpoints:
+    - port: metrics
+      path: /stats/prometheus
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: envoy-metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: envoy-ratelimit
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app: envoy-ratelimit
+spec:
+  jobLabel: app
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: envoy-ratelimit

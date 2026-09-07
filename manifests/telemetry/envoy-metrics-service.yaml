@@ -1,0 +1,21 @@
+# Service exposing the Envoy data-plane stats endpoint (:19001) so Prometheus
+# can scrape gateway rejection counters (envoy_http_downstream_rq_429/400/413...).
+#
+# Envoy Gateway's managed LoadBalancer Service only maps :80; the proxy pod
+# exposes stats on :19001. This Service selects the same proxy pods and is only
+# used as a scrape target (not a route/LB).
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-kserve-gateway-metrics
+  namespace: envoy-gateway-system
+  labels:
+    app.kubernetes.io/name: envoy-metrics
+spec:
+  selector:
+    gateway.envoyproxy.io/owning-gateway-name: kserve-gateway
+    app.kubernetes.io/name: envoy
+  ports:
+    - name: metrics
+      port: 19001
+      targetPort: 19001

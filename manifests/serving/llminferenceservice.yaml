@@ -41,7 +41,9 @@ spec:
           - name: VLLM_ADDITIONAL_ARGS
             # Hardware fence: 4GB KV budget on the RTX 3070.
             # max_model_len 2048 = Qwen2.5-1.5B max_position_embeddings.
-            value: "--gpu-memory-utilization 0.5 --max-model-len 2048 --enforce-eager"
+            # max_num_seqs 32: cap concurrent decode sequences so the scheduler
+            # forms a visible `waiting` queue under load (queueing test lever).
+            value: "--gpu-memory-utilization 0.5 --max-model-len 2048 --enforce-eager --max-num-seqs 32"
           # Triton JIT fix (WSL2): the engine compiles a CUDA util + top-k kernel
           # at startup; gcc's link step (-L/usr/lib64) can't find libcuda.so.1,
           # which lives in /usr/local/cuda-13.0/compat. LIBRARY_PATH makes gcc

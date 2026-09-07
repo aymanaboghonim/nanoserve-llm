@@ -79,6 +79,21 @@ class LoadTest(BaseSettings):
         default="Explain the concept of a KV cache in one sentence.",
         description="Prompt sent by every virtual user.",
     )
+    # Multi-turn conversation mode (NANOSERVE_LOAD_TURNS). Each virtual user
+    # carries a private message history and appends every assistant reply, so
+    # context grows per turn — realistic conversations that exercise KV-cache
+    # growth + prefix reuse, instead of stateless one-shot requests.
+    turns: int = Field(
+        default=1,
+        description="Conversation turns per user (>1 enables multi-turn context growth).",
+    )
+    system_prompt: str = Field(
+        default="You are a concise, helpful assistant on a constrained local GPU.",
+        description="System prompt prepended once per conversation.",
+    )
+    # Think-time between a user's turns (seconds). Lower = denser load.
+    think_min: float = Field(default=2.0, description="Min think time between turns (s).")
+    think_max: float = Field(default=5.0, description="Max think time between turns (s).")
 
 
 class Eval(BaseSettings):
