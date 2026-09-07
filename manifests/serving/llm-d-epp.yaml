@@ -118,6 +118,8 @@ kind: Service
 metadata:
   name: llm-d-epp
   namespace: kserve
+  labels:
+    app: llm-d-epp
 spec:
   selector:
     app: llm-d-epp

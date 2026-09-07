@@ -62,11 +62,18 @@ secret:                 ## Render the DeepSeek Secret from .env (gitignored)
 	@sed 's/CHANGE_ME/'"$$DEEPSEEK_API_KEY"'/' manifests/serving/secret-deepseek.yaml | $(KUBECTL) apply -f -
 	@echo "✔ deepseek Secret applied (key not logged)"
 
-telemetry:              ## Apply Phase 4 telemetry manifests (Prometheus + Grafana)
+telemetry:              ## Apply Phase 4 telemetry manifests (ServiceMonitors + Grafana)
+	make prometheus-operator
 	$(KUBECTL) apply -k manifests/telemetry
-	@echo "✔ telemetry manifests applied"
+	@echo "✔ telemetry manifests applied (operator + ServiceMonitors + Grafana)"
 	@echo "  next: make secret-grafana  (admin Secret from .env)"
 	@echo "  UI:   http://grafana.192.168.1.2.nip.io"
+
+prometheus-operator:    ## Install the Prometheus Operator (minimal helm values)
+	helm upgrade --install prometheus-operator prometheus-community/kube-prometheus-stack \
+	  -n monitoring --create-namespace \
+	  -f manifests/telemetry/prometheus-operator-values.yaml
+	@echo "✔ Prometheus Operator installed (managed Prometheus reconciles ServiceMonitors)"
 
 secret-grafana:         ## Render the Grafana admin Secret from .env (gitignored)
 	@test -f .env || { echo "error: .env missing (copy .env.example, set GRAFANA_ADMIN_PASSWORD)"; exit 1; }

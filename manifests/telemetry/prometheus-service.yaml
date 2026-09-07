@@ -1,0 +1,22 @@
+# Prometheus Service — stable in-cluster endpoint for Grafana + tooling.
+#
+# The operator-managed Prometheus (StatefulSet prometheus-<cr>-0, CR
+# prometheus-operator-kube-p-prometheus) is created by the Prometheus CRD; the
+# operator labels its pods prometheus=<cr-name>, app.kubernetes.io/name=prometheus.
+# This Service keeps the well-known DNS name `prometheus.monitoring.svc` stable
+# (grafana datasource + apiserver-proxy checks in infra/verify.sh depend on it).
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+    prometheus: prometheus-operator-kube-p-prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090

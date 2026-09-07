@@ -1,17 +1,27 @@
-# Kustomize bundle for Phase 4 telemetry (plain Prometheus + Grafana).
+# Kustomize bundle for Phase 4 telemetry (Prometheus Operator + Grafana).
 #   kubectl apply -k manifests/telemetry
 #   make secret-grafana        # apply the admin Secret from gitignored .env
+#
+# The Prometheus OPERATOR itself is installed via helm (NOT kubectl) so the
+# CRDs + operator come first; see prometheus-operator-values.yaml and:
+#   helm upgrade --install prometheus-operator prometheus-community/kube-prometheus-stack \
+#     -n monitoring -f manifests/telemetry/prometheus-operator-values.yaml
+# (wired as `make prometheus-operator`). This bundle then declares the
+# ServiceMonitors the operator-managed Prometheus scrapes, plus the stable
+# `prometheus` Service (grafana datasource + verify.sh proxy target).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
   - namespace.yaml
-  - prometheus-config.yaml
-  - prometheus.yaml
+  - prometheus-service.yaml
+  - servicemonitor-vllm.yaml
+  - servicemonitor-epp.yaml
   - grafana-datasource.yaml
   - grafana-dashboards-provider.yaml
   - grafana-dashboards.yaml
   - grafana.yaml
   - grafana-route.yaml
-  # grafana-secret.yaml is applied via `make secret-grafana` (never committed
-  # with a real password; template committed but the make target renders it).
+  # prometheus-operator-values.yaml is a HELM values file (not a k8s resource)
+  # and grafana-secret.yaml is applied via `make secret-grafana` (never
+  # committed with a real password).

@@ -1,0 +1,28 @@
+# ServiceMonitor for the vLLM workload (Tier-1).
+#
+# Selected by the operator-managed Prometheus (label `release:
+# prometheus-operator` — matches the chart's serviceMonitorSelector).
+# `jobLabel: app` keeps the target job name stable as "vllm".
+# The target Service (qwen-llm-kserve-workload-svc, kserve ns) is created by
+# the KServe LLMInferenceService controller; port is named "http".
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app: vllm
+spec:
+  jobLabel: app
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - kserve
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qwen-llm
+      app.kubernetes.io/component: llminferenceservice-workload

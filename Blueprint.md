@@ -99,16 +99,21 @@ vLLM emits native metrics without requiring code changes or sidecar instrumentat
 
 **Implementation Notes (audit, Phase 4):**
 
-* Deployed as **plain Prometheus + Grafana** in a dedicated `monitoring`
-  namespace — the Blueprint's `ServiceMonitor` implies the Prometheus Operator,
-  which would add ~0.5-1GB (operator + CRDs + kube-state-metrics) to a box that
-  is already ~5GB into its 12GB fence. With exactly two scrape jobs (vLLM
-  `/metrics`, llm-d EPP `/metrics`), a static `prometheus.yml` is the right-sized
-  choice. **To adopt ServiceMonitors later**, swap in the operator and the
-  ServiceMonitor CRD — dashboards and queries are unchanged.
+* Prometheus runs as the **Prometheus Operator** (helm `kube-prometheus-stack`,
+  minimal values) in a dedicated `monitoring` namespace, with two
+  `ServiceMonitor`s (vLLM `/metrics`, llm-d EPP `/metrics`). The original plan
+  had called for plain Prometheus with static config to save RAM; that was
+  revisited in favor of the operator + ServiceMonitors once the serving plane
+  proved stable. The helm values disable everything nonessential (Alertmanager,
+  kube-state-metrics, node-exporter, default rules, the operator's admission
+  webhooks and TLS web server — the latter two so no webhook cert Secret is
+  required).
+* The operator's `Prometheus` CR is reconciled into a StatefulSet with a 2Gi
+  local-path PVC and 3-day retention. A stable `prometheus.monitoring.svc`
+  Service fronts it (Grafana datasource + `infra/verify.sh` proxy checks depend
+  on the stable DNS name).
 * vLLM is scraped via `qwen-llm-kserve-workload-svc.kserve:8000/metrics`
-  (same-namespace ClusterIP; no TLS). TSDB is a 2Gi local-path PVC with 3-day
-  retention (bounded disk; enough for TTFT/decode/kv-cache panels).
+  (same-namespace ClusterIP; no TLS).
 * Grafana is served through the shared `kserve-gateway` on a hostname route:
   `http://grafana.192.168.1.2.nip.io` (nip.io wildcard → the LB address). The
   Gateway listener allows cross-namespace routes, so the `monitoring`-ns

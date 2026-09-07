@@ -1,0 +1,78 @@
+# Prometheus Operator values — minimal footprint for the 12GB box.
+#
+# Installs ONLY the operator + a single operator-managed Prometheus, with our
+# own ServiceMonitors (vllm, llm-d-epp). Everything else is disabled:
+#   - grafana        -> we run our own (grafana.yaml)
+#   - alertmanager   -> not needed
+#   - kube-state-metrics / node-exporter / kubelet rules etc -> not needed
+#   - defaultRules   -> we only scrape the two model-serving targets
+#
+# ServiceMonitors must carry the label `release: prometheus-operator`
+# (serviceMonitorSelectorNilUsesHelmValues default behaviour) to be picked up.
+#
+# Install:
+#   helm upgrade --install prometheus-operator prometheus-community/kube-prometheus-stack \
+#     -n monitoring -f manifests/telemetry/prometheus-operator-values.yaml
+defaultRules:
+  create: false
+
+alertmanager:
+  enabled: false
+
+grafana:
+  enabled: false
+
+# Disable the kubernetes-component scraping stack (SMs, rules, exporters).
+coreDns:
+  enabled: false
+kubeApiServer:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeStateMetrics:
+  enabled: false
+nodeExporter:
+  enabled: false
+windowsExporter:
+  enabled: false
+
+prometheusOperator:
+  # TLS web server needs a serving cert (secret prometheus-operator-kube-p-admission)
+  # that the chart only self-generates when admissionWebhooks are ON. We disable
+  # both the admission webhooks and the operator's TLS so no cert is required.
+  tls:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  admissionWebhooks:
+    enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi

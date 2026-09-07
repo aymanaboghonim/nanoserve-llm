@@ -147,17 +147,24 @@ check "Argo Applications CRD" kubectl get crd applications.argoproj.io >/dev/nul
 check "Argo server" kubectl get deploy -n argocd argocd-server >/dev/null 2>&1
 check "Argo repo-server" kubectl get deploy -n argocd argocd-repo-server >/dev/null 2>&1
 
-echo "--- [D5] Phase 4: Telemetry (Prometheus + Grafana) ---"
-if kubectl get deploy -n monitoring prometheus >/dev/null 2>&1; then
-  check "Prometheus deploy" kubectl get deploy -n monitoring prometheus >/dev/null 2>&1
-  check "Prometheus svc" kubectl get svc -n monitoring prometheus >/dev/null 2>&1
+echo "--- [D5] Phase 4: Telemetry (Prometheus Operator + Grafana) ---"
+if kubectl get sts -n monitoring prometheus-prometheus-operator-kube-p-prometheus >/dev/null 2>&1; then
+  check "Prometheus Operator deploy" kubectl get deploy -n monitoring prometheus-operator-kube-p-operator >/dev/null 2>&1
+  check "operator-managed Prometheus StatefulSet" \
+    kubectl get sts -n monitoring prometheus-prometheus-operator-kube-p-prometheus >/dev/null 2>&1
+  check "Prometheus svc (stable DNS)" kubectl get svc -n monitoring prometheus >/dev/null 2>&1
   # Health + scrape via the apiserver proxy (no port-forward needed).
   PROM_HEALTH="$(kubectl get --raw \
     '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/-/healthy' 2>/dev/null)"
   check "Prometheus healthy (proxy /-/healthy)" \
     bash -c "grep -q 'Prometheus Server is Healthy' <<<'${PROM_HEALTH}'"
-  check "scrape target vllm UP" \
-    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"vllm\"'"
+  check "ServiceMonitor vllm exists" \
+    kubectl get servicemonitor -n monitoring vllm >/dev/null 2>&1
+  check "ServiceMonitor llm-d-epp exists" \
+    kubectl get servicemonitor -n monitoring llm-d-epp >/dev/null 2>&1
+  # Job name comes from ServiceMonitor jobLabel:app -> qwen-llm (vLLM).
+  check "scrape target qwen-llm (vLLM) UP" \
+    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"qwen-llm\"'"
   check "scrape target llm-d-epp UP" \
     bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"llm-d-epp\"'"
   # KV-cache metric must be scraped (Blueprint-critical).

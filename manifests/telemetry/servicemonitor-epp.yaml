@@ -1,0 +1,25 @@
+# ServiceMonitor for the llm-d EPP (endpoint picker) metrics.
+#
+# The EPP Service (llm-d-epp, kserve ns) has a named "metrics" port :9090.
+# Its metadata labels are set in manifests/serving/llm-d-epp.yaml (app:
+# llm-d-epp) so this ServiceMonitor can select it.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: llm-d-epp
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app: llm-d-epp
+spec:
+  jobLabel: app
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - kserve
+  selector:
+    matchLabels:
+      app: llm-d-epp

@@ -2,13 +2,16 @@
 
 Declarative Kubernetes source of truth. Populated phase by phase.
 
+> Deployed + verified 2026-09-07: LLMISVC Ready, gateway chat 200, Tier-2
+> DeepSeek 200, Prometheus/Grafana UP (see repo `infra/verify.sh`).
+
 ## Schema
 
 | Subdirectory | Phase | Contents | Status |
 | --- | --- | --- | --- |
 | `infra/` | 2 | K3s bootstrap + GPU bridge + Gateway API platform stack | ✅ Populated |
 | `serving/` | 2b/3 | Two-tier routing, quota/admission, OTel, DeepSeek Tier-2; KServe `LLMInferenceService` | ✅ 2b/3 populated (LLMISVC Ready; gateway 200 via InferencePool) |
-| `telemetry/` | 4 | Prometheus + Grafana (plain, static scrape; no Operator) | ✅ Populated (Phase 4) |
+| `telemetry/` | 4 | Prometheus Operator (ServiceMonitors) + Grafana | ✅ Populated (Phase 4) |
 
 ## Phase 2 (`infra/`)
 
@@ -48,15 +51,18 @@ Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
 
 ## Phase 4 (`telemetry/`)
 
-Plain Prometheus + Grafana (no Prometheus Operator / ServiceMonitor — deliberate
-deviation from the Blueprint wording to save RAM on the 12GB box; the two scrape
-jobs are static). Scrapes vLLM `/metrics` and the llm-d EPP.
+Prometheus **Operator** (helm, minimal values) + Grafana. The operator-managed
+Prometheus scrapes via `ServiceMonitor`s — vLLM `/metrics` and the llm-d EPP.
+Everything nonessential is disabled in the helm values (Alertmanager,
+kube-state-metrics, node-exporter, default rules) to fit the 12GB box.
 
 | File | Purpose |
 | --- | --- |
 | `namespace.yaml` | `monitoring` namespace |
-| `prometheus-config.yaml` | Scrape config: `vllm` job → `qwen-llm-kserve-workload-svc:8000`, `llm-d-epp` job → `llm-d-epp:9090` |
-| `prometheus.yaml` | Prometheus deploy (pinned), 2Gi local-path PVC (3d retention), `Service prometheus:9090` |
+| `prometheus-operator-values.yaml` | Helm values for kube-prometheus-stack (operator + Prometheus CR only) |
+| `servicemonitor-vllm.yaml` | ServiceMonitor → `qwen-llm-kserve-workload-svc:8000` (vLLM) |
+| `servicemonitor-epp.yaml` | ServiceMonitor → `llm-d-epp:9090` (metrics port) |
+| `prometheus-service.yaml` | Stable `prometheus.monitoring.svc` → operator-managed Prometheus pods |
 | `grafana-datasource.yaml` | Provisioned Prometheus datasource (uid `prometheus`) |
 | `grafana-dashboards-provider.yaml` | Provisioning provider → mounted dashboard JSON |
 | `grafana-dashboards.yaml` | `NanoServe vLLM` dashboard: KV-cache %, queue pressure, TTFT p50/p95, decode p95 |
@@ -65,10 +71,14 @@ jobs are static). Scrapes vLLM `/metrics` and the llm-d EPP.
 | `grafana-route.yaml` | HTTPRoute on `kserve-gateway` → `grafana.192.168.1.2.nip.io` |
 
 ```bash
-make telemetry        # kubectl apply -k manifests/telemetry
-make secret-grafana   # apply the admin Secret from gitignored .env
+make prometheus-operator # helm: kube-prometheus-stack (operator + Prometheus CR)
+make telemetry           # kubectl apply -k manifests/telemetry (ServiceMonitors + Grafana)
+make secret-grafana      # apply the admin Secret from gitignored .env
 # UI: http://grafana.192.168.1.2.nip.io  (or kubectl -n monitoring port-forward svc/grafana 3000:3000)
 ```
+
+> The ServiceMonitors carry `release: prometheus-operator` (the chart's
+> `serviceMonitorSelector`) so the operator-managed Prometheus picks them up.
 
 ## Conventions
 
@@ -83,5 +93,5 @@ manifests/
 ├── README.md
 ├── infra/        # Phase 2: GPU bridge + Gateway API platform stack
 ├── serving/      # Phases 2b/3: two-tier routing + KServe LLMInferenceService
-└── telemetry/    # Phase 4: Prometheus + Grafana (plain)
+└── telemetry/    # Phase 4: Prometheus Operator + Grafana (ServiceMonitors)
 ```
