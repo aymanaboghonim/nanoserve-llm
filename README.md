@@ -28,47 +28,50 @@ used only by the load suite).
 
 ## Architecture
 
+One k3s node runs everything below the Agent (this host is both
+control-plane and worker — "one node", not a single-box HA claim).
+
 ```mermaid
-flowchart LR
-    A["Agent / application<br/>(AsyncOpenAI)"]
+flowchart TB
+    A["Agent / application<br/>AsyncOpenAI client"]
 
-    subgraph Node["Single node (WSL2 + k3s) — 12 GB RAM · RTX 3070 8 GB"]
-        EG["Envoy Gateway v1.8.1<br/>listeners :80 + :8000"]
-        HZ["HTTPRoute kserve-healthz<br/>/healthz -> /health"]
-        HR["HTTPRoute granite-llm-kserve-route<br/>(KServe-generated)"]
-        Pool["InferencePool"]
-        EPP["llm-d EPP<br/>(prefix-cache / load-aware pick)"]
-        VLLM["vLLM pod<br/>granite-4.2-3b (AWQ INT4)<br/>pv://nanoserve-model-cache"]
-        AGR["AIGatewayRoute<br/>x-ai-eg-model header"]
-        GM["Gemini tier-2<br/>(/v1beta/openai)"]
-        KSC["KServe llm-d controller<br/>(control-plane only)"]
-        SM["Prometheus Operator<br/>ServiceMonitors"]
-        GRA["Grafana"]
-    end
+    GW["Gateway<br/>Envoy Gateway · :80/:8000 · /v1 · /healthz<br/>routing: local default · Gemini header<br/>admission / per-user rate limit"]
+    SERVING["Serving plane<br/>KServe LLMInferenceService (control plane)<br/>InferencePool → llm-d EPP :9002 (pick)"]
+    WORKER["Worker<br/>vLLM pod — granite-4.2-3b (AWQ INT4)<br/>fp8 KV cache · 32K context"]
+    OBS["Observability<br/>Prometheus · Grafana<br/>(make observability)"]
+    GM["Gemini tier-2 (cloud)"]
 
-    A -- ":8000 /v1/*" --> EG
-    EG --> HZ
-    EG --> HR --> Pool --> EPP --> VLLM
-    EG --> AGR --> GM
-    KSC -. writes routes/pool .-> HR
-    VLLM --> SM
-    EPP --> SM
-    SM --> GRA
+    A -- "OpenAI HTTP<br/>request + SSE response" <--> GW
+
+    GW -- "default: local model" --> SERVING --> WORKER
+    GW -- "optional: x-ai-eg-model<br/>gemini-3.5-flash-lite" --> GM
+
+    WORKER -. "response: reverse path<br/>(SSE un-buffered)" .-> GW
+    GM -. "response" .-> GW
+
+    WORKER -. "metrics" .-> OBS
+    SERVING -. "EPP metrics" .-> OBS
 ```
 
-- **Control plane only:** KServe writes the `LLMInferenceService` resource; the
-  Gateway API data plane carries all traffic (no Knative/Istio). Model weights
+Solid arrows are the request path; dashed arrows are the response or
+observability path. For streaming, the response is an SSE stream over the same
+connection, un-buffered by the gateway.
+
+- **One k3s node (this host):** everything below the Agent runs on this host,
+  which is a single k3s node that is both control-plane and worker. KServe is
+  control-plane only: it writes the `LLMInferenceService` resource and lets
+  the Gateway API data plane carry traffic (no Knative/Istio). Model weights
   are fetched host-side (`make download-model`) into the flat dir a static
   hostPath PV mounts — never in the pod.
 - **Tier 1 (local):** Envoy Gateway → InferencePool → llm-d EPP (ext-proc
   `:9002`, prefix-cache/load-aware pick) → vLLM pod. A `BackendTrafficPolicy`
   sheds probabilistically (503s) if the engine fails under KV saturation; a
   second policy rate-limits per `x-user-id` (429 lever for the load suite).
-- **Tier 2 (cloud):** requests with `x-ai-eg-model: gemini-3.5-flash-lite` are
-  routed by Envoy AI Gateway to Google's OpenAI-compatible endpoint
+- **Tier 2 (cloud):** requests with `x-ai-eg-model: gemini-3.5-flash-lite`
+  are routed by Envoy AI Gateway to Google's OpenAI-compatible endpoint
   (`schema.prefix: /v1beta/openai`, `BackendTLSPolicy` System CA + SNI,
   `BackendSecurityPolicy` API-key injection).
-- **Telemetry (same node):** vLLM `/metrics` + EPP `/metrics` are scraped via
+- **Telemetry (same host):** vLLM `/metrics` + EPP `/metrics` are scraped via
   `ServiceMonitor`s into the operator-managed Prometheus (2 GiB TSDB, 3 d
   retention) and rendered in Grafana — `make observability` port-forwards both.
 
