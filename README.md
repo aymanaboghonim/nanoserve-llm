@@ -75,6 +75,10 @@ connection, un-buffered by the gateway.
 - **Telemetry (same host):** vLLM `/metrics` + EPP `/metrics` are scraped via
   `ServiceMonitor`s into the operator-managed Prometheus (2 GiB TSDB, 3 d
   retention) and rendered in Grafana — `make observability` port-forwards both.
+- **GitOps (Argo CD):** the three kustomize bundles (`manifests/{infra,serving,
+  telemetry}`) are tracked from GitHub `main` by an app-of-apps
+  (`argo/app-of-apps.yaml`) with auto-sync `prune + selfHeal` — drift between
+  Git and cluster is surfaced and reconciled automatically.
 
 ---
 
@@ -93,6 +97,7 @@ connection, un-buffered by the gateway.
 | Prometheus Operator | kube-prometheus-stack v69.8.2 (operator v0.80.1) | `monitoring` ns, helm-managed |
 | Prometheus | v3.2.1 (operator-managed CR) | 2 GiB local-path PVC, 3 d retention, scrapes `ServiceMonitor`s |
 | Grafana | 11.6.0 | `monitoring` ns, provisioned datasource + dashboard |
+| Argo CD | v3.5.2 | `argocd` ns; app-of-apps (`argo/app-of-apps.yaml`) → 3 Applications (`infra`/`serving`/`telemetry`), auto-sync `prune + selfHeal` |
 | Google AI Studio (Gemini) | `gemini-3.5-flash-lite` | cloud tier-2 via `/v1beta/openai` |
 
 The full component-by-component manifest reference is in
@@ -138,7 +143,8 @@ Numbers are specific to this hardware/date — not a cross-hardware claim.
 │                          #   telemetry/
 ├── infra/                 # host scripts: verify.sh (gate), k3s config
 ├── scripts/               # download_model.sh, latency_benchmark.py, tracer.py
-├── argo/                  # Argo CD install + app-of-apps (deferred — needs a Git remote)
+├── argo/                  # Argo CD install + app-of-apps (GitOps: tracks the
+│                          #   manifests/ bundles from GitHub main)
 ├── contracts/             # openapi.yaml — machine-readable API contract (agent codegen)
 ├── contract_tests/        # portable agent conformance suite (decoupled, env-driven)
 ├── docs/                  # agent-integration.md (consumer guide), blueprint.md (design history)
@@ -230,8 +236,6 @@ every value is overridable via `NANOSERVE_*` env vars or a local `.env`
   lockfile light on this host).
 - **`request-mirror-shadow.yaml` is disabled.** The shadow route's path
   overlaps the KServe route (see file header + `manifests/README.md`).
-- **Argo CD is installed but the app-of-apps is not applied** — it needs a
-  published Git remote (`argo/install.sh` explains).
 - **Grafana/Prometheus are reached by port-forward** (`make observability` →
   `localhost:3000` / `localhost:9090`). An optional LAN hostname route exists
   (`grafana-route.yaml`) but its hostname must be re-pointed at the current

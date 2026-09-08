@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Argo CD full install (non-HA, single-node k3s) + app-of-apps bootstrap.
 #
-# Installs Argo CD 3.5 (tested against Kubernetes v1.36 — our k3s). The repo
-# is local-only, so app-of-apps (argo/app-of-apps.yaml) is NOT auto-applied —
-# it needs a published Git remote (Phase 6). Apply it manually once published.
+# Installs Argo CD 3.5 (tested against Kubernetes v1.36 — our k3s). The
+# app-of-apps (argo/app-of-apps.yaml) tracks the three manifests/ bundles
+# from the published GitHub remote (github.com/aymanaboghonim/nanoserve-llm,
+# branch main). This script installs Argo CD only; register the repo + apply
+# the app-of-apps afterwards (steps printed at the end).
 #
 # Usage:  bash argo/install.sh
 set -euo pipefail
@@ -28,9 +30,22 @@ kubectl wait -n "${ARGO_NS}" --for=condition=Available \
   --timeout=5m
 
 # repo-server uses local-path (k3s default StorageClass) for its PVC — no patch.
-echo "==> [3/3] Argo CD ready. App-of-apps deferred until the repo is published."
+echo "==> [3/3] Argo CD installed."
 echo "---"
 echo "Argo CD is up. Get the admin password:"
 echo "  kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 echo "Port-forward the UI:  kubectl -n argocd port-forward svc/argocd-server 8080:443"
-echo "Register the local repo once published, then apply argo/app-of-apps.yaml."
+echo "Register the repo + apply the app-of-apps (public repo — no credentials):"
+echo "  kubectl apply -f - <<'EOF'"
+echo "  apiVersion: v1"
+echo "  kind: Secret"
+echo "  metadata:"
+echo "    name: nanoserve-llm-repo"
+echo "    namespace: argocd"
+echo "    labels:"
+echo "      argocd.argoproj.io/secret-type: repository"
+echo "  stringData:"
+echo "    type: git"
+echo "    url: https://github.com/aymanaboghonim/nanoserve-llm.git"
+echo "  EOF"
+echo "  kubectl apply -f argo/app-of-apps.yaml   # 3 Applications (infra/serving/telemetry)"
