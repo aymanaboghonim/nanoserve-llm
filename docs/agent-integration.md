@@ -35,12 +35,12 @@ from openai import AsyncOpenAI
 
 client = AsyncOpenAI(
     base_url="http://localhost:8000/v1",  # or the LAN LB URL
-    api_key="EMPTY",                       # vLLM default; no real auth
-    timeout=120.0,                         # generous: shared 8GB GPU, queueing
+    api_key="EMPTY",  # vLLM default; no real auth
+    timeout=120.0,  # generous: shared 8GB GPU, queueing
     max_retries=2,
 )
 
-MODEL = "ibm-granite/granite-4.2-3b"       # EXACT served name (see /v1/models)
+MODEL = "ibm-granite/granite-4.2-3b"  # EXACT served name (see /v1/models)
 ```
 
 > Do **not** send an `x-user-id` header: the gateway rate-limits per that
@@ -57,10 +57,11 @@ Probe before issuing work and after idle gaps; treat non-200 as "not ready"
 ```python
 import httpx
 
+
 async def platform_ready(base: str) -> bool:
     async with httpx.AsyncClient(timeout=5.0) as c:
-        r = await c.get(f"{base}/healthz")   # root URL, NOT /v1
-        return r.status_code == 200          # body is EMPTY — status is the contract
+        r = await c.get(f"{base}/healthz")  # root URL, NOT /v1
+        return r.status_code == 200  # body is EMPTY — status is the contract
 ```
 
 Contract: 200 **with an empty body** (newer vLLM `/health` drops the text).
@@ -83,16 +84,16 @@ Answered well under 5 s (local baseline ~60 ms) — no buffering.
 resp = await client.chat.completions.create(
     model=MODEL,
     messages=[
-        {"role": "system", "content": "أنت مساعد قانوني..."},   # Arabic is first-class
-        {"role": "user",   "content": "ما هي مواد القانون...؟"},
+        {"role": "system", "content": "أنت مساعد قانوني..."},  # Arabic is first-class
+        {"role": "user", "content": "ما هي مواد القانون...؟"},
     ],
     max_tokens=1024,
-    temperature=0.0,                       # deterministic legal output
+    temperature=0.0,  # deterministic legal output
     extra_body={"chat_template_kwargs": {"enable_thinking": False}},  # ← explicit (see §5)
 )
 msg = resp.choices[0].message
-answer = msg.content        # final answer text
-reasoning = msg.reasoning   # present ONLY when thinking enabled
+answer = msg.content  # final answer text
+reasoning = msg.reasoning  # present ONLY when thinking enabled
 ```
 
 Response is a standard OpenAI `chat.completion`: `id`, `choices[0].message`,
@@ -103,8 +104,10 @@ total tokens), `model` echoes the request model.
 
 ```python
 stream = await client.chat.completions.create(
-    model=MODEL, messages=[...],
-    stream=True, temperature=0.0,
+    model=MODEL,
+    messages=[...],
+    stream=True,
+    temperature=0.0,
     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
 )
 async for chunk in stream:
@@ -120,26 +123,29 @@ buffer (no RequestBuffer policy). Terminator chunk carries
 ### 4.3 Tool calling (OpenAI schema, `qwen3_coder` parser)
 
 ```python
-tools = [{
-    "type": "function",
-    "function": {
-        "name": "search_law_articles",
-        "description": "Search Saudi legal articles by keyword.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search terms (Arabic OK)."},
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_law_articles",
+            "description": "Search Saudi legal articles by keyword.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search terms (Arabic OK)."},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
             },
-            "required": ["query"],
-            "additionalProperties": False,
         },
-    },
-}]
+    }
+]
 
 resp = await client.chat.completions.create(
     model=MODEL,
     messages=[{"role": "user", "content": "ابحث عن مواد التعويض"}],
-    tools=tools, tool_choice="auto",
+    tools=tools,
+    tool_choice="auto",
     temperature=0.0,
     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
 )
