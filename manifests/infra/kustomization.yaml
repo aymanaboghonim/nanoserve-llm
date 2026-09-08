@@ -1,8 +1,17 @@
 # Kustomize bundle for the Phase 2 infra layer.
 #   kubectl apply -k manifests/infra
+#
+# Also folded in: the gateway platform objects (GatewayClass/Gateway/HTTPRoute
+# under gateway/) so Argo CD's nanoserve-infra app owns the whole declarative
+# infra surface. The CRDs + Envoy controllers themselves come from
+# manifests/infra/gateway-stack.sh (day-1 bootstrap, not kustomize-managed).
+#
+# gpu-test-pod.yaml is intentionally NOT here: it is a one-shot day-1 smoke
+# test that would stay Pending forever next to the serving workload (the vLLM
+# pod holds the single GPU). Run it manually for validation.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
   - device-plugin.yaml          # NVIDIA device plugin DaemonSet (nvidia.com/gpu capacity)
-  - gpu-test-pod.yaml           # GPU smoke test (runtimeClassName: nvidia)
+  - gateway/                    # GatewayClass + Gateway + hello route

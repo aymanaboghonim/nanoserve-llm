@@ -1,14 +1,16 @@
 # Argo CD app-of-apps — manages all NanoServe manifests declaratively.
 #
-# Each Application points at a kustomize bundle in the repo. Argo CD syncs the
-# cluster state from Git, surfacing drift. Add apps here as phases land:
-#   - infra      (Phase 2: device plugin, GPU smoke, gateway platform)
-#   - serving    (Phase 2b/3: two-tier route, quota, otel; later LLMInferenceService)
-#   - telemetry  (Phase 4)
+# Each Application points at a kustomize bundle in the repo; Argo CD syncs the
+# cluster state from Git and surfaces drift:
+#   - nanoserve-infra      manifests/infra       -> namespace default
+#                          (NVIDIA device plugin, GPU smoke, gateway platform)
+#   - nanoserve-serving    manifests/serving     -> namespace kserve
+#   - nanoserve-telemetry  manifests/telemetry   -> namespace monitoring
 #
-# NOTE: the repo is local; for Argo to reach it, point `repoURL` at your Git
-# remote once published (Phase 6), or use a local git server. The placeholder
-# below assumes a GitHub remote.
+# Repo is public (https://github.com/aymanaboghonim/nanoserve-llm). Day-1
+# bootstrapping still runs the infra scripts first (gateway-stack.sh installs
+# the CRDs + Envoy controllers; argo/install.sh installs Argo); Argo then owns
+# day-2 drift for the resources below.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -17,7 +19,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ayman/nanoserve-llm.git
+    repoURL: https://github.com/aymanaboghonim/nanoserve-llm.git
     targetRevision: main
     path: manifests/infra
   destination:
@@ -36,12 +38,31 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ayman/nanoserve-llm.git
+    repoURL: https://github.com/aymanaboghonim/nanoserve-llm.git
     targetRevision: main
     path: manifests/serving
   destination:
     server: https://kubernetes.default.svc
     namespace: kserve
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nanoserve-telemetry
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aymanaboghonim/nanoserve-llm.git
+    targetRevision: main
+    path: manifests/telemetry
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
   syncPolicy:
     automated:
       prune: true
