@@ -1,27 +1,27 @@
-# RequestMirror shadow route — shadow-test the Tier-2 (DeepSeek) backend
+# RequestMirror shadow route — shadow-test the Tier-2 (Gemini) backend
 # with a copy of local-model traffic, WITHOUT affecting the primary response.
 #
 # This is a Gateway API HTTPRoute filter: fire-and-forget (responses ignored).
 # It is NOT failover — it is shadow testing.
 #
-# DISABLED during Phase 3 validation (removed from kustomization.yaml): its
-# path (/v1/chat/completions) overlaps the LLMISVC-generated route and, with a
-# bare Service backendRef, made Envoy Gateway 500 on that path. Re-enable in
-# the shadow phase — the backendRef below is already GIE-correct.
+# DISABLED during serving-plane validation (removed from kustomization.yaml):
+# its path (/v1/chat/completions) overlaps the LLMISVC-generated route and,
+# with a bare Service backendRef, made Envoy Gateway 500 on that path.
+# Re-enable in the shadow phase — the backendRef below is already GIE-correct.
 #
 # Gateway API constraint: RequestMirror.backendRef must be a k8s Service with
 # a port (it cannot reference an AIServiceBackend). The mirror target is the
-# DeepSeek-facing echo Service below (replace with the real Tier-2 Service
-# when wiring live). In production point this at a mock/sidecar to avoid real
+# Gemini-facing echo Service below (replace with the real Tier-2 Service when
+# wiring live). In production point this at a mock/sidecar to avoid real
 # cloud cost while validating.
 apiVersion: v1
 kind: Service
 metadata:
-  name: deepseek-mirror-svc
+  name: gemini-mirror-svc
   namespace: kserve
 spec:
   selector:
-    app: deepseek-mirror
+    app: gemini-mirror
   ports:
     - port: 80
       targetPort: 8080
@@ -44,7 +44,7 @@ spec:
         - type: RequestMirror
           requestMirror:
             backendRef:
-              name: deepseek-mirror-svc
+              name: gemini-mirror-svc
               namespace: kserve
               port: 80
             # Mirror 10% of requests for shadow testing.

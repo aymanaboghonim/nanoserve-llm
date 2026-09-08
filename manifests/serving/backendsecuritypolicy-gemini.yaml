@@ -1,0 +1,24 @@
+# EAG BackendSecurityPolicy — inject the Gemini API key upstream.
+#
+# Envoy AI Gateway authenticates the gateway → Google by injecting the API key
+# into the `Authorization` header of outbound requests. The key comes from the
+# gemini-api-key Secret (applied via `make secret` from gitignored .env; the
+# Secret key MUST be named `apiKey` — EAG errors otherwise).
+#
+# WITHOUT this policy the gateway forwards requests with NO auth header and
+# Google answers 401. (The TLS-origination half lives in
+# backend-gemini.yaml's BackendTLSPolicy.)
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: BackendSecurityPolicy
+metadata:
+  name: gemini-backend
+  namespace: kserve
+spec:
+  type: APIKey
+  apiKey:
+    secretRef:
+      name: gemini-api-key
+  targetRefs:
+    - group: aigateway.envoyproxy.io
+      kind: AIServiceBackend
+      name: gemini-backend

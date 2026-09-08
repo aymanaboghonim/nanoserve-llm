@@ -2,7 +2,16 @@
 
 Runs against the served model's ``/v1/chat/completions`` endpoint. All knobs are
 env-driven via the NanoServe settings (``NANOSERVE_LOAD_*``, ``NANOSERVE_*``);
-defaults are deliberately conservative for a ~1.5B AWQ model on a 4GB KV budget.
+defaults are sized for the 3B Granite AWQ model on a ~6.4GB VRAM budget (0.80 x
+8GB; fp8 KV pool ~97K tokens at 32K context).
+
+Clients use **FastHttpUser** (geventhttpclient) so per-request overhead stays
+negligible and Locust itself never becomes the bottleneck at high concurrency.
+Conversations are **stateful single tasks with a monotonic turn counter**: a
+user opens a long unique context and sends ordered follow-ups back-to-back
+(short think time), like a RAG agent resolving one query — dense enough to
+actually fill the KV pool and form a scheduler queue (a 2-5 s think time left
+the pool near 0% with no queueing).
 
 Run interactively (web UI on http://localhost:8089)::
 
@@ -14,6 +23,12 @@ Run headless::
         --host http://localhost:8000 \
         --headless -u 8 -r 1 -t 1m --csv .locust/run
 
+Stress run with a ramp -> plateau -> end-of-window spike (load shape)::
+
+    NANOSERVE_LOAD_SHAPE=1 uv run --group load locust -f load_tests/locustfile.py \
+        --host http://localhost:8000 --headless --csv .locust/stress
+    # or: make stress
+
 Requires a live endpoint (Phase 3+). Without one, Locust reports
 ``ConnectionError`` on every request — expected until the serving plane exists.
 """
@@ -22,7 +37,7 @@ from __future__ import annotations
 
 import logging
 
-from locust import HttpUser, between, task
+from locust import FastHttpUser, between, task
 
 from nanoserve_llm.config import get_settings
 from nanoserve_llm.logging import get_logger
@@ -32,45 +47,89 @@ logger: logging.Logger = get_logger(__name__)
 # Read settings once at import time so Locust workers share identical defaults.
 SETTINGS = get_settings()
 
+# Traffic mix by user-class weight:
+#   - ChatCompletionsUser (6):  short one-shot questions.
+#   - ConversationalUser (40):  RAG-style ordered multi-turn sessions.
+#   - RateLimitedUser (3):      same sessions + per-user x-user-id header
+#                               (trips the gateway 20 req/min limit -> 429s,
+#                               recorded as expected, not failures).
+
 # Headers for the OpenAI-compatible chat completions API.
 HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"Bearer {SETTINGS.serving.api_key}",
 }
 
-# Static payload template — every user sends the same short prompt with a small
-# max_tokens so a 4GB KV cache is not exhausted by long generations.
-REQUEST_BODY = {
-    "model": SETTINGS.serving.model,
-    "messages": [{"role": "user", "content": SETTINGS.load_test.prompt}],
-    "max_tokens": SETTINGS.load_test.max_tokens,
-    "temperature": 0.7,
-}
+# Granite-4.2 thinking: the chat template DEFAULTS to enable_thinking=true, so
+# omitting the kwargs still lets the model burn the max_tokens budget on a
+# <think> trace and return empty content. ALWAYS send the explicit override:
+#   false (default) -> thinking off, content-only replies (throughput tests)
+#   true            -> reasoning path (NANOSERVE_LOAD_THINKING=1; also raise
+#                      max_tokens to ~256+ so content survives the trace)
+_THINKING = SETTINGS.load_test.thinking
+THINKING_KWARGS = {"chat_template_kwargs": {"enable_thinking": _THINKING}}
 
 
-class ChatCompletionsUser(HttpUser):
-    """A virtual user hammering the chat completions endpoint."""
+def _base_body(messages: list[dict[str, str]]) -> dict:
+    """Shared completion body: model, full message history, capped output."""
+    return {
+        "model": SETTINGS.serving.model,
+        "messages": messages,
+        "max_tokens": SETTINGS.load_test.max_tokens,
+        "temperature": 0.7,
+        **THINKING_KWARGS,
+    }
 
-    wait_time = between(1.0, 3.0)  # think-time between requests
+
+def _check(response, extra_name: str = "") -> bool:
+    """Classify one completion response; returns True on success.
+
+    - 429            -> expected (per-user rate-limit lever): recorded, not a
+                        failure (keeps the default run's exit code clean while
+                        the dashboard rejection panel still shows the 429s).
+    - >= 400         -> real failure (4xx contract / 5xx overload).
+    - malformed body -> failure.
+    - otherwise      -> success; asserts content (or reasoning when thinking
+                        is enabled) so empty short generations count as errors.
+    """
+    if response.status_code == 429:
+        response.success()
+        return True
+    if response.status_code >= 400:
+        response.failure(f"HTTP {response.status_code}: {response.text[:200]!r}")
+        return False
+    try:
+        message = response.json()["choices"][0]["message"]
+        content = message.get("content") or ""
+        reasoning = message.get("reasoning") or ""
+        ok = bool(content) if not _THINKING else bool(content or reasoning)
+        if not ok:
+            response.failure("Malformed response: empty content/reasoning")
+            return False
+        return True
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        response.failure(f"Malformed response: {exc!r}")
+        return False
+
+
+class ChatCompletionsUser(FastHttpUser):
+    """A virtual user firing short one-shot questions (stateless)."""
+
+    wait_time = between(SETTINGS.load_test.think_min, SETTINGS.load_test.think_max)
+    weight = 6
 
     @task
     def chat_completions(self) -> None:
         """POST /v1/chat/completions and record the response latency."""
+        body = _base_body([{"role": "user", "content": SETTINGS.load_test.prompt}])
         with self.client.post(
             "/v1/chat/completions",
-            json=REQUEST_BODY,
+            json=body,
             headers=HEADERS,
             name="/v1/chat/completions",
             catch_response=True,
         ) as response:
-            if response.status_code >= 400:
-                response.failure(f"HTTP {response.status_code}: {response.text[:200]!r}")
-                return
-            try:
-                data = response.json()
-                assert data["choices"][0]["message"]["content"]
-            except (ValueError, KeyError, IndexError, AssertionError) as exc:
-                response.failure(f"Malformed response: {exc!r}")
+            _check(response)
 
     def on_start(self) -> None:
         """Log the target endpoint once per user spawn (first user only)."""
@@ -83,20 +142,23 @@ class ChatCompletionsUser(HttpUser):
             )
 
 
-class ConversationalUser(HttpUser):
-    """A virtual user holding a multi-turn conversation.
+class ConversationalUser(FastHttpUser):
+    """A RAG-style agent user: one long unique context, ordered follow-ups.
 
-    Each user keeps a PRIVATE message list that grows on every turn: a long
-    context document whose HEAD IS UNIQUE PER USER (random incident id, region,
-    service — so different users share no prefix, forcing real prefill + KV
-    churn) followed by user prompt -> assistant reply -> ... The context grows
-    per turn toward ~1,900 tokens. Within a user's own session the head is
-    stable, so only within-user prefix hits remain (turn 2+ reuse turn 1).
-    ``turns`` is the number of user turns per session (env
-    ``NANOSERVE_LOAD_TURNS``).
+    Runs a private, ordered conversation — turn 1, turn 2, … — as a single
+    stateful task: every time the task runs, ``_turn`` advances one step
+    (Locust 2.46 has no ``seq_task``; a monotonic per-user turn counter inside
+    one task is the robust way to guarantee order while users interleave).
+    Each user keeps a PRIVATE message list: a long context document whose HEAD
+    IS UNIQUE PER USER (random incident id, region, service — so different
+    users share no prefix, forcing real prefill + KV churn), then user prompt
+    -> assistant reply -> ... When the session reaches ``turns`` turns — or
+    the conversation would exceed the context window — a fresh session starts
+    (new chat), keeping sustained load while staying under vLLM's
+    ``max_model_len`` (32768).
 
-    A separate RateLimitedUser subclass (same long context, plus an
-    ``x-user-id`` header) trips the per-user gateway 429 limit.
+    RateLimitedUser subclasses this (same workload + per-user ``x-user-id``)
+    to trip the gateway's per-user 429 limit.
     """
 
     wait_time = between(SETTINGS.load_test.think_min, SETTINGS.load_test.think_max)
@@ -111,7 +173,7 @@ class ConversationalUser(HttpUser):
     # Locust task label.
     _extra_headers: dict[str, str] = {}
     _request_name = "/v1/chat/completions (multi-turn)"
-    weight = 34
+    weight = 40
 
     def on_start(self) -> None:
         import random
@@ -130,11 +192,16 @@ class ConversationalUser(HttpUser):
         }
 
     def _build_context(self) -> str:
-        """Long incident report unique to this user (random id/region/service)."""
+        """Long incident report unique to this user (random id/region/service).
+
+        Padded with deterministic legal boilerplate up to ``context_tokens`` so
+        each concurrent user holds thousands of KV entries (filling the fp8 KV
+        pool) instead of ~450-token documents that leave it near 0%.
+        """
         i = self._incident
         r = self._region
         s = self._service
-        return (
+        report = (
             f"# Incident report — {i} ({s} latency spike, {r})\n"
             "\n"
             "## Summary\n"
@@ -184,6 +251,36 @@ class ConversationalUser(HttpUser):
             "3. Added an SLO alert on auth-service upstream p99 (warning at 300 ms).\n"
             "4. Postmortem scheduled; owner: platform-auth.\n"
         )
+        # Pad with deterministic legal boilerplate up to the context target so
+        # each user's document is thousands of tokens long (RAG-agent style).
+        target_chars = SETTINGS.load_test.context_tokens * 4
+        if len(report) < target_chars:
+            padding = (
+                "\n## Addendum — service terms and data-handling annex\n"
+                "1. Scope. This annex governs the processing of personally "
+                "identifiable information (PII) and incident telemetry collected "
+                f"by the {s} platform in region {r} during the reporting window.\n"
+                "2. Retention. Raw event logs are retained for ninety (90) days; "
+                "derived metrics for thirteen (13) months. Aggregates used for "
+                "capacity planning are kept for the life of the service.\n"
+                "3. Access. Only on-call engineers with the incident-response "
+                "role may query raw traces. All access is audited and reviewed "
+                "weekly by the security team.\n"
+                "4. Escalation. A suspected data breach must be reported to the "
+                "privacy office within four (4) hours of confirmation, with an "
+                "initial impact assessment covering the number of records "
+                "affected, the classes of data exposed, and the mitigation plan.\n"
+                "5. Deletion. On request, all PII belonging to a data subject is "
+                "deleted from primary and derived stores within thirty (30) days, "
+                "unless legal hold applies. Deletion jobs are idempotent and "
+                "logged to the compliance ledger.\n"
+                "6. Subprocessors. No third-party subprocessor receives raw "
+                "incident data. Analytics partners receive only aggregates above "
+                "a minimum cell size of ten (10) records.\n"
+            )
+            while len(report) < target_chars:
+                report += padding
+        return report
 
     # Realistic follow-ups a human would ask about the report. Each appends to
     # the private history, so per-user contexts diverge after the shared head.
@@ -201,42 +298,39 @@ class ConversationalUser(HttpUser):
         "deadlines, based only on the report.",
     )
 
-    def _conversation_request(self) -> dict:
-        """Next turn's body: carry the FULL growing history."""
-        self._turn += 1
-        idx = (self._turn - 1) % len(self._TURN_PROMPTS)
-        self._messages.append({"role": "user", "content": self._TURN_PROMPTS[idx]})
-        return {
-            "model": SETTINGS.serving.model,
-            "messages": list(self._messages),  # full context, growing
-            "max_tokens": SETTINGS.load_test.max_tokens,
-            "temperature": 0.7,
-        }
-
     def _turn_overflow(self) -> bool:
-        """Coarse token estimate (EN ~4 chars/token) vs vLLM max_model_len 2048.
+        """Coarse token estimate (EN ~4 chars/token) vs vLLM max_model_len 32768.
 
         Sends a turn only while the FULL conversation fits; when it would
-        exceed ~1900 tokens the session resets instead (guards against 400
-        'maximum context length' errors).
+        exceed ~8000 tokens the session resets instead (guards against 400
+        'maximum context length' errors; 8K of context headroom keeps prefill
+        cost realistic for the 32K window without hammering the 8GB card).
         """
         total_chars = sum(len(m["content"]) for m in self._messages)
         estimated = total_chars // 4
-        return estimated >= 1900
+        return estimated >= 8000
 
-    @task
-    def conversation_turn(self) -> None:
-        """Send one turn; append the assistant reply to this user's history.
+    def _reset_session(self) -> None:
+        """Start a fresh chat (same unique identity; new system context)."""
+        self._messages = [self._system_message()]
+        self._turn = 0
 
-        When the session reaches ``turns`` turns — or the conversation would
-        exceed the model's context window — start a fresh session (clear
-        history), like a user opening a new chat. Keeps sustained load while
-        staying under vLLM's ``max_model_len`` (2048).
-        """
+    def _maybe_reset(self) -> None:
+        """Rotate to a fresh session once this one is used up (or too long)."""
         if self._turn >= SETTINGS.load_test.turns or self._turn_overflow():
-            self._messages = [self._system_message()]
-            self._turn = 0
-        body = self._conversation_request()
+            self._reset_session()
+
+    def _send_turn(self) -> None:
+        """Append the next prompt, POST the full history, keep the reply.
+
+        ``_turn`` advances only on success so a transient failure does not
+        silently shorten sessions; the next task execution retries the same
+        turn with the same context.
+        """
+        self._maybe_reset()
+        idx = self._turn % len(self._TURN_PROMPTS)
+        self._messages.append({"role": "user", "content": self._TURN_PROMPTS[idx]})
+        body = _base_body(list(self._messages))
         headers = {**HEADERS, **self._extra_headers}
         with self.client.post(
             "/v1/chat/completions",
@@ -245,17 +339,20 @@ class ConversationalUser(HttpUser):
             name=self._request_name,
             catch_response=True,
         ) as response:
-            if response.status_code >= 400:
-                response.failure(f"HTTP {response.status_code}: {response.text[:200]!r}")
+            if not _check(response, self._request_name):
                 return
             try:
-                data = response.json()
-                reply = data["choices"][0]["message"]["content"]
-                assert reply
-                # Append the assistant reply so the next turn's context grows.
+                reply = response.json()["choices"][0]["message"].get("content") or ""
                 self._messages.append({"role": "assistant", "content": reply})
-            except (ValueError, KeyError, IndexError, AssertionError) as exc:
+            except (ValueError, KeyError, IndexError) as exc:
                 response.failure(f"Malformed response: {exc!r}")
+                return
+        self._turn += 1
+
+    @task
+    def conversation_turn(self) -> None:
+        """Send the next turn of this user's conversation (ordered by _turn)."""
+        self._send_turn()
 
 
 class RateLimitedUser(ConversationalUser):
@@ -263,7 +360,8 @@ class RateLimitedUser(ConversationalUser):
     so the gateway's per-user rate limit (20 req/min) trips -> HTTP 429.
 
     Only a handful of these should run alongside many plain ConversationalUsers:
-    the 429s are expected and visible on the dashboard rejection panel.
+    the 429s are expected (recorded, not failed) and visible on the dashboard
+    rejection panel.
     """
 
     _request_name = "/v1/chat/completions (rate-limited 429)"
@@ -277,3 +375,55 @@ class RateLimitedUser(ConversationalUser):
         self._user_id = f"load-user-{random.randint(1, 5)}"
         self._extra_headers = {"x-user-id": self._user_id}
         super().on_start()
+
+
+# LoadTestShape — ramp -> plateau -> END-OF-WINDOW SPIKE. Locust uses a shape
+# whenever one is defined in the file (ignoring -u/-r/-t), so it is only
+# defined when NANOSERVE_LOAD_SHAPE=1 (``make stress``); plain ``make load`` /
+# manual -u runs keep the classic fixed-concurrency behaviour.
+if SETTINGS.load_test.shape:
+    from locust import LoadTestShape
+
+    class RampAndSpikeShape(LoadTestShape):
+        """Realistic curve: warm-up ramp, steady plateau, final spike.
+
+        The spike at the end of the window is what actually fills the fp8 KV
+        pool and forms a scheduler queue (--max-num-seqs 16) — steady low
+        concurrency never does. Watch Grafana
+        (vllm:kv_cache_usage_perc + num_requests_waiting) during the spike.
+        """
+
+        def __init__(self) -> None:
+            super().__init__()
+            lt = SETTINGS.load_test
+            self._warmup = lt.warmup_s
+            self._plateau = lt.plateau_s
+            self._spike = lt.spike_s
+            self._spike_hold = lt.spike_hold_s
+            self._plateau_users = lt.users
+            self._spike_users = lt.spike_users
+            self._total = self._warmup + self._plateau + self._spike + self._spike_hold
+
+        def tick(self) -> tuple[int, float] | None:
+            t = self.get_run_time()
+            if t <= self._warmup:
+                # Ramp 0 -> plateau users over the warm-up window.
+                n = int(self._plateau_users * (t / self._warmup))
+                return max(1, n), 2.0
+            if t <= self._warmup + self._plateau:
+                # Steady plateau below the --max-num-seqs cap: no queue, just
+                # throughput + prefix-cache hits.
+                return self._plateau_users, 2.0
+            if t <= self._warmup + self._plateau + self._spike:
+                # Ramp from plateau up to the spike peak (crosses max_num_seqs).
+                dt = t - self._warmup - self._plateau
+                n = self._plateau_users + int(
+                    (self._spike_users - self._plateau_users) * (dt / self._spike)
+                )
+                return n, 4.0
+            if t <= self._total:
+                # HOLD the spike peak: sustained over-subscription so the KV
+                # pool fills and the scheduler queue stays visible in Grafana
+                # (vllm:num_requests_waiting).
+                return self._spike_users, 2.0
+            return None  # spike hold over -> stop the run

@@ -26,6 +26,9 @@ def _completion(client, settings: Settings, prompt: str) -> str:
         messages=[{"role": "user", "content": prompt}],
         max_tokens=settings.load_test.max_tokens,
         temperature=0.0,
+        # Granite-4.2 defaults thinking ON; disable it so judged answers are
+        # the model's actual content (not an empty body after a think trace).
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     content = resp.choices[0].message.content
     assert content, "endpoint returned an empty completion"

@@ -1,0 +1,41 @@
+# Gateway-level /healthz contract (Repository 2 readiness).
+#
+# Repo-2 probes http://localhost:8000/healthz before issuing chat requests.
+# Native vLLM exposes its health check at EXACTLY /health (the KServe
+# llm-d-cuda template's liveness/readiness/startup probes all use
+# httpGet.path=/health on :8000), so the gateway maps the external /healthz to
+# the upstream /health via a ReplaceFullPath URLRewrite.
+#
+# The backendRef targets the KServe-generated workload Service directly
+# (granite-llm-kserve-workload-svc:8000) — NOT the InferencePool — so the EPP
+# ext-proc router never touches health probes.
+#
+# Route precedence: Exact /healthz beats the KServe catch-all route, so chat
+# traffic is unaffected. The route attaches to BOTH gateway listeners (:80 and
+# :8000) since it declares no hostname/sectionName.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kserve-healthz
+  namespace: kserve
+spec:
+  parentRefs:
+    - name: kserve-gateway
+      group: gateway.networking.k8s.io
+      kind: Gateway
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /healthz
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /health
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: granite-llm-kserve-workload-svc
+          port: 8000

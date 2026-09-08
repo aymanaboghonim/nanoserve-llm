@@ -4,10 +4,20 @@
 # Global rateLimit keyed per distinct `x-user-id` header: each user gets
 # 20 req/min; requests WITHOUT the header are never limited (the load test's
 # "normal" users omit it, a few "burst" users send it and trip the limit -> 429).
+# Repository-2 does not send x-user-id, so this never throttles the agent.
+#
+# 20 req/min is a deliberate per-user test knob, NOT a capacity cap — it needs
+# no retune for the Granite-4.2-3B model / 32K context (capacity is governed by
+# the vLLM engine flags --max-num-seqs/--max-model-len and the fp8 KV pool).
 #
 # Requires the Envoy `envoy-ratelimit` server, which Envoy Gateway auto-deploys
 # when a global rateLimit policy is applied (rateLimitDeployment block already
 # in the EnvoyGateway config).
+#
+# CRITICAL: targetRefs MUST follow the KServe-generated HTTPRoute name, which
+# derives from the LLMISVC name (granite-llm-kserve-route). If the LLMISVC is
+# ever renamed again, retarget this policy — an orphaned targetRef silently
+# disables the 429 lever (this happened in the qwen -> granite rename).
 #
 # NOTE: AdmissionControl + RequestMirror are intentionally NOT used here — see
 # manifests/serving/request-mirror-shadow.yaml (disabled) for the mirroring path.
@@ -20,7 +30,7 @@ spec:
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      name: qwen-llm-kserve-route
+      name: granite-llm-kserve-route
   rateLimit:
     type: Global
     global:

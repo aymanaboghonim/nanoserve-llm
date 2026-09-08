@@ -1,0 +1,24 @@
+# AIServiceBackend for the cloud Tier-2 (Google AI Studio / Gemini).
+#
+# Envoy AI Gateway abstraction wrapping the Envoy Gateway `Backend` + declaring
+# the API schema. Gemini's OpenAI-compatible API lives under the
+# `/v1beta/openai` PREFIX on generativelanguage.googleapis.com (NOT at root),
+# so `schema.prefix` is REQUIRED: EAG forwards a `/v1/chat/completions` request
+# to `{prefix}/chat/completions`. (DeepSeek needed no prefix; Gemini does —
+# v0.6+ schema API, see EAG supported-providers docs.)
+#
+# backendRef MUST be an Envoy Gateway Backend (kind=Backend,
+# group=gateway.envoyproxy.io) — CEL-validated; cannot point at a k8s Service.
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIServiceBackend
+metadata:
+  name: gemini-backend
+  namespace: kserve
+spec:
+  schema:
+    name: OpenAI
+    prefix: /v1beta/openai
+  backendRef:
+    name: gemini-backend
+    kind: Backend
+    group: gateway.envoyproxy.io

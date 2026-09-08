@@ -50,7 +50,7 @@ uv run --group eval pytest evals -v
 | --- | --- | --- |
 | `NANOSERVE_BASE_URL` | `http://localhost:8000/v1` | Endpoint under test |
 | `NANOSERVE_API_KEY` | `EMPTY` | Auth for the endpoint |
-| `NANOSERVE_MODEL` | `Qwen/Qwen2.5-1.5B-Instruct-AWQ` | Model under test |
+| `NANOSERVE_MODEL` | `ibm-granite/granite-4.2-3b` | Model under test |
 | `NANOSERVE_EVAL_JUDGE_MODEL` | same as model | Judge model (self-judging by default) |
 | `NANOSERVE_EVAL_THRESHOLD` | `0.5` | Pass threshold for G-Eval |
 | `NANOSERVE_EVAL_LIVE` | `0` | `1` to run e2e tests |

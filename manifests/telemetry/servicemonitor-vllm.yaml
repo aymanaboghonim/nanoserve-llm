@@ -3,7 +3,7 @@
 # Selected by the operator-managed Prometheus (label `release:
 # prometheus-operator` — matches the chart's serviceMonitorSelector).
 # `jobLabel: app` keeps the target job name stable as "vllm".
-# The target Service (qwen-llm-kserve-workload-svc, kserve ns) is created by
+# The target Service (granite-llm-kserve-workload-svc, kserve ns) is created by
 # the KServe LLMInferenceService controller; port is named "http".
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -24,5 +24,5 @@ spec:
       - kserve
   selector:
     matchLabels:
-      app.kubernetes.io/name: qwen-llm
+      app.kubernetes.io/name: granite-llm
       app.kubernetes.io/component: llminferenceservice-workload

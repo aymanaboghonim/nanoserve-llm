@@ -12,8 +12,8 @@ class TestDoctorCLI:
         from nanoserve_llm.config import Settings
 
         report = cli._render(Settings())
-        assert "kv-cache cap  : 4.0 GB" in report
-        assert "model         : Qwen" in report
+        assert "kv-cache cap  : 6.4 GB" in report
+        assert "granite-4.2-3b" in report
         assert "NanoServe doctor" in report
 
     def test_ram_unknown_on_missing_sysconf(self, monkeypatch) -> None:

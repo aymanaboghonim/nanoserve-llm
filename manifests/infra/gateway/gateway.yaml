@@ -4,6 +4,13 @@
 #
 # NOTE: gateway-api/ CRD YAMLs are vendored (pinned) under this directory; the
 # GatewayClass/Gateway/HTTPRoute below are hand-written and versioned here.
+#
+# Listeners:
+#   - http (port 80):       legacy dev surface (hello, grafana hostname route).
+#   - http-8000 (port 8000): Repository-2 immutable contract surface —
+#     http://localhost:8000/v1 (WSL2 mirrored networking binds the servicelb LB
+#     to localhost:8000). KServe's chat route + the explicit /healthz route
+#     attach to both listeners (no hostname/sectionName filtering).
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -22,6 +29,12 @@ spec:
     - name: http
       protocol: HTTP
       port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: http-8000
+      protocol: HTTP
+      port: 8000
       allowedRoutes:
         namespaces:
           from: All

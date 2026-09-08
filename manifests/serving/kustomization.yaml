@@ -1,20 +1,23 @@
-# Kustomize bundle for the Phase 2b/3 serving-plane manifests.
+# Kustomize bundle for the Phase 2b/3/4 serving-plane manifests.
 #   kubectl apply -k manifests/serving
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - backend-deepseek.yaml        # Envoy Backend + BackendTLSPolicy (Tier 2)
-  - backendsecuritypolicy-deepseek.yaml  # EAG API-key injection (Tier 2 auth)
-  - aiservicebackend-deepseek.yaml
-  - aigatewayroute.yaml          # two-tier per-model routing
-  - quotapolicy.yaml             # per-user limits
-  # backendtrafficpolicy.yaml    # DISABLED: kserve-inference-policy targets the
-  #                               # deleted kserve-shadow-route (orphaned) and
-  #                               # caps 60 req/min — would throttle load tests.
-  # request-mirror-shadow.yaml   # disabled until shadow phase (see file header)
-  - otel-collector.yaml          # OTel Collector (tracing ingest)
-  - llm-d-epp.yaml               # llm-d Endpoint Picker (pool router)
-  - inferencepool.yaml           # GIE InferencePool (local vLLM pods)
-  - llminferenceservice.yaml     # KServe LLMInferenceService (Qwen)
-  # secret-deepseek.yaml is applied via `make secret` (never committed)
+  - backend-gemini.yaml            # Envoy Backend + BackendTLSPolicy (Tier 2)
+  - backendsecuritypolicy-gemini.yaml  # EAG API-key injection (Tier 2 auth)
+  - aiservicebackend-gemini.yaml   # OpenAI schema + /v1beta/openai prefix
+  - aigatewayroute.yaml            # two-tier per-model routing
+  - quotapolicy.yaml               # Tier-2 quota (Repo-2 owns rate limiting)
+  - backendtrafficpolicy-local.yaml  # AdmissionControl: LOCAL Tier-1 KV protection
+  - backendtrafficpolicy-rate-limit.yaml  # per-x-user-id 20 req/min 429 lever (load suite)
+  - cors-policy.yaml               # gateway-level permissive CORS (Repo-2 web UI)
+  - healthz-route.yaml             # /healthz -> vLLM /health (Repo-2 probe)
+  - model-pv.yaml                  # static hostPath PV (host model cache)
+  - model-pvc.yaml                 # claim statically bound to the PV
+  - otel-collector.yaml            # OTel Collector (tracing ingest)
+  - llm-d-epp.yaml                 # llm-d Endpoint Picker (pool router)
+  - inferencepool.yaml             # GIE InferencePool (local vLLM pods)
+  - llminferenceservice.yaml       # KServe LLMInferenceService (Granite 4.2-3B)
+  # request-mirror-shadow.yaml     # disabled until shadow phase (see header)
+  # secret-gemini.yaml is applied via `make secret` (never committed)

@@ -8,7 +8,7 @@ Prometheus.
 Usage:
     uv run --group dev python scripts/latency_benchmark.py \
         --url http://localhost:8000/v1/chat/completions \
-        --model Qwen/Qwen2.5-1.5B-Instruct-AWQ \
+        --model ibm-granite/granite-4.2-3b \
         --prompt "Explain a KV cache." \
         --tokens 128 --requests 5
 
@@ -42,8 +42,17 @@ def _run_one(
     prompt: str,
     max_tokens: int,
     temperature: float,
+    thinking: bool = False,
 ) -> dict[str, float]:
-    """Stream one completion; return timing stats in seconds."""
+    """Stream one completion; return timing stats in seconds.
+
+    Granite-4.2 defaults to thinking ON (the chat template enables it unless
+    told otherwise), which burns the max_tokens budget on a <think> trace and
+    can leave content empty. Throughput benchmarks therefore pass an explicit
+    enable_thinking override (default off). When thinking IS on, the think
+    tokens arrive as reasoning deltas (not content) — those are counted too so
+    ITL/token-rate stay meaningful either way.
+    """
     start = time.monotonic()
     stream = client.chat.completions.create(
         model=model,
@@ -51,6 +60,7 @@ def _run_one(
         max_tokens=max_tokens,
         temperature=temperature,
         stream=True,
+        extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
     )
     first_token_s: float | None = None
     prev_s = start
@@ -59,8 +69,16 @@ def _run_one(
         now = time.monotonic()
         if first_token_s is None:
             first_token_s = now - start
-        delta = chunk.choices[0].delta.content if chunk.choices else None
-        if delta:
+        if chunk.choices:
+            delta = chunk.choices[0].delta
+            text = (
+                delta.content
+                or getattr(delta, "reasoning_content", None)
+                or getattr(delta, "reasoning", None)
+            )
+        else:
+            text = None
+        if text:
             token_count += 1
             prev_s = now
     total_s = time.monotonic() - start
@@ -99,6 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--requests", type=int, default=5)
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument(
+        "--thinking",
+        action="store_true",
+        help="Enable Granite thinking (reasoning deltas counted in ITL/tokens).",
+    )
+    parser.add_argument(
         "--warmup", type=int, default=1, help="warmup requests (excluded from stats)"
     )
     args = parser.parse_args(argv)
@@ -113,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
             prompt=args.prompt,
             max_tokens=args.tokens,
             temperature=args.temperature,
+            thinking=args.thinking,
         )
 
     logger.info("benchmarking %d request(s)...", args.requests)
@@ -124,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             prompt=args.prompt,
             max_tokens=args.tokens,
             temperature=args.temperature,
+            thinking=args.thinking,
         )
         results.append(stats)
         print(

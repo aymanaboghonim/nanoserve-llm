@@ -28,6 +28,7 @@ dev = [
     "opentelemetry-sdk>=1.44.0",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
+    "respx>=0.21",  # hermetic /v1/chat/completions mocks (CI: zero live calls)
     "ruff>=0.16.4",
 ]
 eval = [
@@ -35,6 +36,14 @@ eval = [
 ]
 load = [
     "locust>=2.46.3",
+    "geventhttpclient>=2.3.1",  # FastHttpUser (low-overhead client for dense load)
+]
+model = [
+    # Out-of-pod model download pipeline (scripts/download_model.sh -> `make
+    # download-model`). Provides the `huggingface-cli` entry point used to fetch
+    # model weights into the host HF cache before the static hostPath PV mount
+    # (never in-pod).
+    "huggingface-hub>=0.26",
 ]
 
 [tool.uv]
@@ -61,6 +70,7 @@ warn_redundant_casts = true
 testpaths = ["tests", "evals"]
 markers = [
     "e2e: tests that require a live model endpoint (NANOSERVE_EVAL_LIVE=1)",
+    "live_contract: Repository-2 contract tests requiring the live gateway (NANOSERVE_E2E_LIVE=1)",
 ]
 addopts = "-ra"
 filterwarnings = [

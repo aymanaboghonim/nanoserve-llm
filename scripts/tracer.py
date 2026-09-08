@@ -9,7 +9,7 @@ Phase-4 telemetry layer correlates with):
 Usage:
     uv run --group dev python scripts/tracer.py \
         --url http://localhost:8000/v1/chat/completions \
-        --model Qwen/Qwen2.5-1.5B-Instruct-AWQ \
+        --model ibm-granite/granite-4.2-3b \
         --prompt "Explain a KV cache." \
         --otlp-endpoint localhost:4317 \
         --tokens 64

@@ -1,28 +1,47 @@
-# LLMInferenceService — the serving plane's core (Phase 3).
+# LLMInferenceService — the serving plane's core (Phase 3/4).
 #
-# Serves Qwen2.5-1.5B-Instruct-AWQ via vLLM on the single RTX 3070.
-#   - model:  pvc://nanoserve-model-cache — a static hostPath PV pointing at
-#             the host-side model cache (~/.cache/nanoserve/models, fetched by
-#             infra/fetch-model.sh). No download in the pod, no provisioner.
-#   - vLLM:   pinned image, --gpu-memory-utilization 0.5 (4GB KV budget),
-#             --max-model-len tuned to fit, --served-model-name matches the
-#             KServe model name EXACTLY
+# Serves ibm-granite/granite-4.2-3b (AutoRound AWQ INT4 export) via vLLM on
+# the single RTX 3070.
+#   - model:  pvc://nanoserve-model-cache — statically bound to the hostPath PV
+#             backed by the host-side flat model cache (~/.cache/nanoserve/models,
+#             materialized by scripts/download_model.sh via `make download-model`).
+#             No download in the pod, no provisioner.
+#   - vLLM:   pinned image, --gpu-memory-utilization 0.80 (~6.4GB VRAM budget),
+#             --max-model-len 32768, --served-model-name matches the KServe model
+#             name EXACTLY (ibm-granite/granite-4.2-3b)
+#   - quant:  AutoRound AWQ INT4 (2.48GiB single safetensors; config embeds
+#             quantization_config awq gemm/g128/asym zero_point); served via
+#             --quantization awq_marlin (Marlin GEMM path, faster than awq).
+#   - tools:  --enable-auto-tool-choice + --tool-call-parser qwen3_coder
+#             (IBM-recommended for Granite 4.2; verified present in runtime).
+#   - reasoning: request-controlled (enable_thinking via chat_template_kwargs).
+#             Split <think> into the `reasoning` field with the granite parser
+#             (--reasoning-parser granite_thinking_parser
+#             --reasoning-parser-plugin /mnt/models/granite_thinking_parser.py —
+#             ships in the model dir; no ConfigMap needed).
+#   - KV:     --kv-cache-dtype fp8 — VERIFIED ACTIVE on sm_86 in this build
+#             ("Using fp8 data type to store kv cache"); pool 97,136 tokens.
 #   - router: referenced gateway (kserve-gateway) + scheduler.pool.ref
 #             (kserve-inference-pool, created by the llm-d EPP joining it)
 #   - nvidia RuntimeClass + gpu=true nodeSelector
+#
+# NOTE metadata.name (granite-llm): the KServe-generated HTTPRoute
+# (granite-llm-kserve-route), workload Service (granite-llm-kserve-workload-svc),
+# backendtrafficpolicy-local target, healthz-route backendRef and ServiceMonitors
+# all key off this name — keep them in sync if it ever changes.
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
-  name: qwen-llm
+  name: granite-llm
   namespace: kserve
 spec:
   model:
     uri: pvc://nanoserve-model-cache
-    name: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+    name: ibm-granite/granite-4.2-3b
   # Pod labels drive the InferencePool selector (serving.kserve.io/inferenceservice).
   labels:
-    app: qwen-llm
-    serving.kserve.io/inferenceservice: qwen-llm
+    app: granite-llm
+    serving.kserve.io/inferenceservice: granite-llm
   replicas: 1
   template:
     # The well-known config (kserve-config-llm-template) supplies the
@@ -39,11 +58,37 @@ spec:
       - name: main
         env:
           - name: VLLM_ADDITIONAL_ARGS
-            # Hardware fence: 4GB KV budget on the RTX 3070.
-            # max_model_len 2048 = Qwen2.5-1.5B max_position_embeddings.
-            # max_num_seqs 32: cap concurrent decode sequences so the scheduler
+            # Hardware fence: 6.4GB VRAM budget on the RTX 3070 (0.80 x 8GB).
+            # Empirical (nvidia-smi, WSL2): total card 8192MiB; desktop/display
+            # holds ~0.7GB, so 0.80 leaves a ~1.2GB safe net for desktop spikes
+            # (0.90 would leave ~0.3GB -> CUDA OOM risk). INT4 weights ~2.7GB;
+            # the rest is fp8 KV cache (~92K tokens at 0.80 vs 43.5K at 0.55).
+            # --kv-cache-dtype fp8: VERIFIED ACTIVE on sm_86 in this vLLM build
+            #   ("Using fp8 data type to store kv cache") — halves KV bytes.
+            # max-model-len 32768: agent/RAG headroom — Repo-2 stuffs retrieved
+            #   legal chunks + multi-turn history + (optional) thinking traces.
+            #   Safe: the fp8 KV pool (~97K tokens) is FIXED by the 0.80 memory
+            #   budget and does NOT grow with max-model-len (verified 4K->8K kept
+            #   it at 97,136). Raising the ceiling only trims worst-case
+            #   concurrency: ~3 full-32K concurrent streams (chunked prefill on),
+            #   more when requests are shorter — ample for a single RAG agent.
+            # --enable-prefix-caching: KV reuse across Repo-2's shared system
+            #   prompt (RAG agent context) — big decode savings.
+            # --enable-auto-tool-choice + --tool-call-parser qwen3_coder: OpenAI
+            #   function-calling contract (Repo-2 agent; IBM-recommended for
+            #   Granite 4.2, verified present in this runtime).
+            # --quantization awq_marlin: Marlin GEMM path (vLLM reports model IS
+            #   convertible; "awq" forced path is slower). Revert to awq if init
+            #   fails on this asymmetric (zero_point) export.
+            # Reasoning: request-controlled via chat_template_kwargs
+            #   enable_thinking; when enabled, split <think> out of the reply
+            #   content into reasoning_content using IBM's granite_thinking_parser
+            #   (ships in the model dir -> mounted at /mnt/models). If the plugin
+            #   import fails at startup, drop these two args and <think> stays in
+            #   content (Repo-2 parses or disables thinking).
+            # max_num_seqs 16: cap concurrent decode sequences so the scheduler
             # forms a visible `waiting` queue under load (queueing test lever).
-            value: "--gpu-memory-utilization 0.5 --max-model-len 2048 --enforce-eager --max-num-seqs 32"
+            value: "--gpu-memory-utilization 0.80 --max-model-len 32768 --enforce-eager --max-num-seqs 16 --enable-prefix-caching --enable-auto-tool-choice --tool-call-parser qwen3_coder --quantization awq_marlin --kv-cache-dtype fp8 --reasoning-parser granite_thinking_parser --reasoning-parser-plugin /mnt/models/granite_thinking_parser.py"
           # Triton JIT fix (WSL2): the engine compiles a CUDA util + top-k kernel
           # at startup; gcc's link step (-L/usr/lib64) can't find libcuda.so.1,
           # which lives in /usr/local/cuda-13.0/compat. LIBRARY_PATH makes gcc

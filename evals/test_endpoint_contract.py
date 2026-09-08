@@ -17,7 +17,7 @@ pytestmark = pytest.mark.e2e
 
 PROMPT = "What is the capital of France?"
 
-# Soft latency budget for a ~1.5B AWQ model on an RTX 3070 with 64 max tokens.
+# Soft latency budget for a ~3B AWQ model on an RTX 3070 with 64 max tokens.
 # TTFT + decode of 64 tokens typically lands well under this; violations hint at
 # KV-cache saturation or queue pressure (see Phase 4 telemetry).
 LATENCY_BUDGET_S = 30.0
@@ -29,6 +29,9 @@ def _chat(client, settings: Settings) -> dict:
         messages=[{"role": "user", "content": PROMPT}],
         max_tokens=settings.load_test.max_tokens,
         temperature=0.0,
+        # Granite-4.2 defaults thinking ON; disable it so the deterministic
+        # contract tests assert on real content, not think traces.
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     return resp.model_dump()
 

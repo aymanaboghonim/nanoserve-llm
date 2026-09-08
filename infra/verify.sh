@@ -98,28 +98,28 @@ check "well-known configs present" \
   kubectl get llminferenceserviceconfig -n kserve kserve-config-llm-template >/dev/null 2>&1
 check "llm-d EPP running" kubectl get deploy -n kserve llm-d-epp >/dev/null 2>&1
 check "InferencePool exists" kubectl get inferencepool -n kserve kserve-inference-pool >/dev/null 2>&1
-if kubectl get llmisvc qwen-llm -n kserve >/dev/null 2>&1; then
-  LLM_READY="$(kubectl get llmisvc qwen-llm -n kserve \
+if kubectl get llmisvc granite-llm -n kserve >/dev/null 2>&1; then
+  LLM_READY="$(kubectl get llmisvc granite-llm -n kserve \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)"
   if [[ "${LLM_READY}" = "True" ]]; then
-    pass "LLMInferenceService qwen-llm Ready"
+    pass "LLMInferenceService granite-llm Ready"
   else
-    info "LLMInferenceService qwen-llm present (Ready=${LLM_READY:-unknown}; model may still be downloading)"
+    info "LLMInferenceService granite-llm present (Ready=${LLM_READY:-unknown}; model may still be downloading)"
   fi
   # Routing-wiring assertions — regression guards for the GIE fix: the route
   # must backendRef the pool as an InferencePool (group+kind), the pool must be
   # Accepted by the gateway, and the service must report ready routing.
   check "LLMISVC InferencePoolReady=True" \
-    test "$(kubectl get llmisvc qwen-llm -n kserve \
+    test "$(kubectl get llmisvc granite-llm -n kserve \
       -o jsonpath='{.status.conditions[?(@.type=="InferencePoolReady")].status}' 2>/dev/null)" = "True"
   check "LLMISVC RouterReady=True" \
-    test "$(kubectl get llmisvc qwen-llm -n kserve \
+    test "$(kubectl get llmisvc granite-llm -n kserve \
       -o jsonpath='{.status.conditions[?(@.type=="RouterReady")].status}' 2>/dev/null)" = "True"
   check "KServe model HTTPRoute Accepted" \
-    test "$(kubectl get httproute qwen-llm-kserve-route -n kserve \
+    test "$(kubectl get httproute granite-llm-kserve-route -n kserve \
       -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
   check "HTTPRoute backendRef is GIE InferencePool" \
-    test "$(kubectl get httproute qwen-llm-kserve-route -n kserve \
+    test "$(kubectl get httproute granite-llm-kserve-route -n kserve \
       -o jsonpath='{.spec.rules[0].backendRefs[0].group}/{.spec.rules[0].backendRefs[0].kind}' 2>/dev/null)" = "inference.networking.k8s.io/InferencePool"
   check "InferencePool accepted by gateway (parents Accepted)" \
     test "$(kubectl get inferencepool kserve-inference-pool -n kserve \
@@ -129,18 +129,50 @@ if kubectl get llmisvc qwen-llm -n kserve >/dev/null 2>&1; then
     # The model name must match vLLM's --served-model-name exactly (-AWQ suffix).
     LLM_CHAT_CODE="$(curl -s -m 60 -o /dev/null -w '%{http_code}' \
       -H 'Content-Type: application/json' \
-      -d '{"model":"Qwen/Qwen2.5-1.5B-Instruct-AWQ","messages":[{"role":"user","content":"ping"}],"max_tokens":8}' \
+      -d '{"model":"ibm-granite/granite-4.2-3b","messages":[{"role":"user","content":"ping"}],"max_tokens":8}' \
       "http://${GW_ADDR}/v1/chat/completions" 2>/dev/null)"
     check "gateway E2E chat returns 200 (${GW_ADDR})" test "${LLM_CHAT_CODE}" = "200"
   else
     info "no gateway address — skipping E2E chat check"
   fi
 else
-  info "LLMInferenceService qwen-llm not applied yet"
+  info "LLMInferenceService granite-llm not applied yet"
 fi
-check "DeepSeek AIServiceBackend Accepted" \
-  test "$(kubectl get aiservicebackend deepseek-backend -n kserve \
+check "Gemini AIServiceBackend Accepted" \
+  test "$(kubectl get aiservicebackend gemini-backend -n kserve \
     -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
+check "Gemini Envoy Backend resolved (endpoints)" \
+  test -n "$(kubectl get backend gemini-backend -n kserve -o jsonpath='{.spec.endpoints[0].fqdn.hostname}' 2>/dev/null)"
+check "local admission-control policy present" \
+  kubectl get backendtrafficpolicy kserve-admission-control-local -n kserve >/dev/null 2>&1
+
+# --- Phase 4 model-storage gate: static hostPath PV must be Bound ---
+check "model PV exists (nanoserve-model-cache-pv)" \
+  kubectl get pv nanoserve-model-cache-pv >/dev/null 2>&1
+if kubectl get pv nanoserve-model-cache-pv >/dev/null 2>&1; then
+  check "model PV Bound by nanoserve-model-cache claim" \
+    test "$(kubectl get pv nanoserve-model-cache-pv -o jsonpath='{.status.phase}' 2>/dev/null)" = "Bound"
+  check "model PV hostPath populated (weights materialized)" \
+    test -f "$(kubectl get pv nanoserve-model-cache-pv -o jsonpath='{.spec.hostPath.path}' 2>/dev/null)/model.safetensors"
+fi
+
+# --- Repository-2 contract surface checks (Phase 3/4) ---
+check "gateway :8000 listener present" \
+  test -n "$(kubectl get gateway kserve-gateway -n kserve -o jsonpath='{.spec.listeners[?(@.name=="http-8000")].port}' 2>/dev/null)"
+if [[ -n "${GW_ADDR:-}" ]]; then
+  # /healthz is the Repo-2 probe -> URLRewrite to vLLM /health (port 8000 listener).
+  HZ_CODE="$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://${GW_ADDR}:8000/healthz" 2>/dev/null)"
+  check "gateway /healthz returns 200 (:8000)" test "${HZ_CODE}" = "200"
+  # CORS preflight against the AI route (permissive SecurityPolicy).
+  CORS_HEADER="$(curl -s -m 10 -D - -o /dev/null \
+    -H 'Origin: http://localhost:3000' \
+    -H 'Access-Control-Request-Method: POST' \
+    -X OPTIONS "http://${GW_ADDR}:8000/v1/chat/completions" 2>/dev/null \
+    | grep -i '^access-control-allow-origin:' | head -1)"
+  check "CORS preflight allow-origin header" test -n "${CORS_HEADER}"
+else
+  info "no gateway address — skipping /healthz + CORS checks"
+fi
 
 echo "--- [D4] Phase 3/G: Argo CD ---"
 check "Argo Applications CRD" kubectl get crd applications.argoproj.io >/dev/null 2>&1
@@ -162,9 +194,9 @@ if kubectl get sts -n monitoring prometheus-prometheus-operator-kube-p-prometheu
     kubectl get servicemonitor -n monitoring vllm >/dev/null 2>&1
   check "ServiceMonitor llm-d-epp exists" \
     kubectl get servicemonitor -n monitoring llm-d-epp >/dev/null 2>&1
-  # Job name comes from ServiceMonitor jobLabel:app -> qwen-llm (vLLM).
-  check "scrape target qwen-llm (vLLM) UP" \
-    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"qwen-llm\"'"
+  # Job name comes from ServiceMonitor jobLabel:app -> granite-llm (vLLM).
+  check "scrape target granite-llm (vLLM) UP" \
+    bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"granite-llm\"'"
   check "scrape target llm-d-epp UP" \
     bash -c "kubectl get --raw '/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/targets' 2>/dev/null | grep -q '\"job\":\"llm-d-epp\"'"
   # KV-cache metric must be scraped (Blueprint-critical).

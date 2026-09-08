@@ -1,12 +1,14 @@
 # Cloud Tier-2 routing via Envoy AI Gateway AIGatewayRoute (v1beta1).
 #
 # The LOCAL Tier-1 model is routed by KServe's own generated HTTPRoute
-# (qwen-llm-kserve-route → InferencePool → Envoy Gateway/GIE), so this
-# AIGatewayRoute carries ONLY the cloud DeepSeek rule. The AI-GW controller
+# (granite-llm-kserve-route → InferencePool → Envoy Gateway/GIE), so this
+# AIGatewayRoute carries ONLY the cloud Gemini rule. The AI-GW controller
 # resolves AIGatewayRoute backendRefs as AIServiceBackends (it cannot target
 # an InferencePool) — mixing them is what the audit flagged.
 #
 # Model selection is by HTTP header match (`x-ai-eg-model`).
+#   - x-ai-eg-model: gemini-3.5-flash-lite  → Google AI Studio Tier-2
+#   - no header / local model name          → KServe Tier-1 (default rule)
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
@@ -18,12 +20,12 @@ spec:
       group: gateway.networking.k8s.io
       kind: Gateway
   rules:
-    # Tier 2 — cloud DeepSeek (AIServiceBackend → Envoy Backend).
+    # Tier 2 — cloud Gemini (AIServiceBackend → Envoy Backend → Google).
     - matches:
         - headers:
             - type: Exact
               name: x-ai-eg-model
-              value: deepseek-chat
+              value: gemini-3.5-flash-lite
       backendRefs:
-        - name: deepseek-backend
+        - name: gemini-backend
           namespace: kserve

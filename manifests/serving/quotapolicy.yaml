@@ -2,20 +2,24 @@
 #
 # targetRefs MUST reference AIServiceBackend resources (CEL-validated).
 # Applies a token-bucket budget (duration + limit) per model via
-# perModelQuotas. The local Tier-1 model shares the 4GB KV budget — quotas
-# protect it from a single client saturating the KV cache.
+# perModelQuotas.
+#
+# NOTE: admission control / rate limiting is deliberately NOT applied to the
+# Tier-2 Gemini route — the downstream Arabic Legal RAG Agent rate-limits
+# client-side (aiolimiter). Local Tier-1 KV-cache protection lives in
+# backendtrafficpolicy-local.yaml (AdmissionControl → granite-llm-kserve-route).
 apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: QuotaPolicy
 metadata:
-  name: deepseek-quota
+  name: gemini-quota
   namespace: kserve
 spec:
   targetRefs:
     - group: aigateway.envoyproxy.io
       kind: AIServiceBackend
-      name: deepseek-backend
+      name: gemini-backend
   perModelQuotas:
-    - modelName: deepseek-chat
+    - modelName: gemini-3.5-flash-lite
       quota:
         mode: Shared
         defaultBucket:

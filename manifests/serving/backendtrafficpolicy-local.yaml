@@ -1,0 +1,33 @@
+# Local Tier-1 admission control — protects the ~6.4GB VRAM budget / KV cache.
+#
+# Envoy Gateway BackendTrafficPolicy (v1alpha1) AdmissionControl:
+# probabilistically rejects requests when the upstream success rate drops
+# below minSuccessRate inside the sampling window. When the local vLLM starts
+# failing under KV/queue saturation (503/overload), Envoy sheds probabilistically
+# instead of letting Locust or Repo-2 pile onto the GPU.
+#
+# SCOPE: Tier-1 LOCAL route ONLY (KServe-generated granite-llm-kserve-route →
+# InferencePool). The Tier-2 Gemini route deliberately has NO traffic policy —
+# the downstream agent rate-limits client-side (aiolimiter).
+#
+# CRITICAL: the target HTTPRoute name is KServe-generated from the LLMISVC
+# name. If the LLMISVC is renamed, this policy target orphans (retarget it).
+#
+# Tuning: defaults mirror the CRD defaults; adjust rejectionAggression /
+# maxRejectionPercent after observing the Phase-5 Locust run. Shed responses
+# are 503s — Locust must label them as expected, not failures.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: kserve-admission-control-local
+  namespace: kserve
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: granite-llm-kserve-route
+  admissionControl:
+    maxRejectionPercent: 80
+    minSuccessRate: 95
+    rejectionAggression: 1
+    samplingWindow: 30s

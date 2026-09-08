@@ -31,22 +31,22 @@ Strict hardware fencing is required to prevent the Linux OOM killer from termina
 #### Phase 2b: Production Hardening, Two-Tier Routing & Observability
 
 Adds a hardening layer on top of the Phase 2 cluster: two-tier model routing
-(local vLLM / cloud DeepSeek), quota + admission control, shadow-testing,
+(local vLLM / cloud Google Gemini), quota + admission control, shadow-testing,
 OpenTelemetry tracing, streaming latency benchmarking, an idempotent Makefile,
 and full Argo CD GitOps.
 
 * **Two-Tier Routing:** Per-model `AIGatewayRoute` rules — local model → GIE
   `InferencePool` (k8s Service), cloud model → Envoy Gateway `Backend` +
-  `AIServiceBackend` (DeepSeek). Envoy AI Gateway's `AIServiceBackend.backendRef`
+  `AIServiceBackend` (Gemini). Envoy AI Gateway's `AIServiceBackend.backendRef`
   **must** be an Envoy `Backend` (CEL-validated); it cannot target a k8s Service,
   and `InferencePool` + `AIServiceBackend` refs cannot mix in one rule.
 * **Traffic Control:** `QuotaPolicy` (per-user limits, model-aware), Envoy
   `BackendTrafficPolicy` `RateLimit` + `AdmissionControl` (probabilistic shedding
-  when the local model saturates — protects the 4GB KV budget). `RequestBuffer`
+  when the local model saturates — protects the ~6.4GB VRAM budget). `RequestBuffer`
   is **not** used (incompatible with streaming `/v1/chat/completions`).
 * **Shadow Testing:** `RequestMirror` filter mirrors local-model requests to the
   Tier-2 backend (fire-and-forget — responses ignored); it is **not** failover.
-* **Secrets:** DeepSeek API key in a k8s `Secret` sourced from gitignored `.env`
+* **Secrets:** Google AI Studio API key in a k8s `Secret` sourced from gitignored `.env`
   (never committed); `BackendTLSPolicy` secures Tier-2 egress.
 * **Observability:** Lightweight OpenTelemetry Collector (≈50-100MB) ingests
   spans from `scripts/tracer.py` (OTel); `scripts/latency_benchmark.py` measures
@@ -64,8 +64,8 @@ and full Argo CD GitOps.
 The deployment utilizes KServe's modern dual-track strategy to avoid Knative overhead.
 
 * **Controllers:** Install KServe utilizing the Kubernetes Gateway API rather than Knative to handle intelligent request scheduling.
-* **Resource Deployment:** Apply the `LLMInferenceService` manifest targeting a quantized ~1.5B parameter model (e.g., Qwen2.5-1.5B-AWQ).
-* **Engine Tuning:** Expose vLLM's OpenAI-compatible endpoint with `--gpu-memory-utilization 0.5` to rigidly cap VRAM consumption at 4GB, reserving capacity for the KV-cache.
+* **Resource Deployment:** Apply the `LLMInferenceService` manifest targeting the AutoRound AWQ INT4 export of `ibm-granite/granite-4.2-3b`.
+* **Engine Tuning:** Expose vLLM's OpenAI-compatible endpoint with `--gpu-memory-utilization 0.80` to cap VRAM at ~6.4GB (AutoRound AWQ INT4 weights ~2.5GB via `awq_marlin` + fp8 KV cache ~97K tokens at 32K ctx), reserving ~1.6GB for the WSL2 desktop/display (0.90 → ~0.3GB net → CUDA OOM risk), with prefix caching, `--enable-auto-tool-choice --tool-call-parser qwen3_coder` (IBM-recommended for Granite 4.2), and request-controlled thinking (granite_thinking_parser → `reasoning` field).
 
 **Implementation Notes (audit, Phase 3):**
 
@@ -81,7 +81,7 @@ The deployment utilizes KServe's modern dual-track strategy to avoid Knative ove
 * KServe is pure control-plane: traffic flows client → Envoy Gateway → (Envoy
   AI Gateway GIE extension) → InferencePool → llm-d EPP (ext-proc, KV-cache /
   load-aware pick) → vLLM pod. Request model names must equal vLLM's
-  `--served-model-name` exactly (e.g. `Qwen/Qwen2.5-1.5B-Instruct-AWQ`).
+  `--served-model-name` exactly (e.g. `ibm-granite/granite-4.2-3b`).
 * vLLM flags must be passed via the `VLLM_ADDITIONAL_ARGS` env (the preset's NGC
   entrypoint swallows container args). WSL2 Triton JIT needs
   `LIBRARY_PATH=/usr/local/cuda-13.0/compat` so gcc links libcuda at startup.
@@ -112,10 +112,10 @@ vLLM emits native metrics without requiring code changes or sidecar instrumentat
   local-path PVC and 3-day retention. A stable `prometheus.monitoring.svc`
   Service fronts it (Grafana datasource + `infra/verify.sh` proxy checks depend
   on the stable DNS name).
-* vLLM is scraped via `qwen-llm-kserve-workload-svc.kserve:8000/metrics`
+* vLLM is scraped via `granite-llm-kserve-workload-svc.kserve:8000/metrics`
   (same-namespace ClusterIP; no TLS).
 * Grafana is served through the shared `kserve-gateway` on a hostname route:
-  `http://grafana.192.168.1.2.nip.io` (nip.io wildcard → the LB address). The
+  `http://grafana.<gateway-LB>.nip.io` (nip.io wildcard → the LB address). The
   Gateway listener allows cross-namespace routes, so the `monitoring`-ns
   HTTPRoute attaches without gateway changes. Admin credentials come from a
   gitignored `.env` via `make secret-grafana` (never committed).
@@ -137,11 +137,16 @@ Execute continuous stress testing against the deployed engine to validate stabil
 * All load/eval runs target the **serving gateway** (Envoy → EPP → pool), NOT the
   pod directly — that is the real deployment path. `make eval` / `make load` /
   `make bench` resolve the LB address dynamically and default to it.
-* Validation results (2026-09-07): DeepEval contract + quality suite green via
-  gateway (self-judged G-Eval on the served Qwen); streaming benchmark TTFT
-  ~38ms / ITL ~15ms / ~67 tok/s; Locust smoke 8 users / 2 min = **355 requests,
-  0 failures**, ~3 req/s, p50 600ms / p95 720ms. No vLLM/gateway restarts.
-* **Tier-2 (DeepSeek) required two missing pieces** to work end-to-end:
+* Validation results (2026-09-08): DeepEval contract + quality suite green via
+  gateway (self-judged G-Eval on the served Granite, 9 passed); live Repo-2
+  contract suites green (healthz / Gemini-route / SSE / tool-calling, 8
+  passed); streaming benchmark TTFT ~59ms / ITL ~23ms / ~43 tok/s (thinking
+  off); saturation stress 20u plateau / 44u held spike with 3K-token RAG
+  contexts = 2,288 requests, 0 failures, peak KV ~51% + 28-deep scheduler
+  queue at --max-num-seqs 16 (see README Measured results). No vLLM/gateway
+  restarts under load.
+* **Tier-2 (Google Gemini) required the same two missing pieces** DeepSeek
+  did, plus one more:
   1. `BackendTLSPolicy` (`gateway.networking.k8s.io/v1`, NOT `v1alpha3` — the
      Gateway API v1.5.1 CRD only serves `v1`) on the Envoy `Backend` with
      `wellKnownCACertificates: System` + SNI hostname. Without it Envoy opens
@@ -149,7 +154,10 @@ Execute continuous stress testing against the deployed engine to validate stabil
   2. EAG `BackendSecurityPolicy` (`type: APIKey`) referencing the Secret — and
      the Secret key MUST be named `apiKey` (EAG: "secret … does not contain key
      apiKey"). Without it the gateway forwards no `Authorization` header → 401.
-  Verified: `curl` via gateway with `x-ai-eg-model: deepseek-chat` → 200.
+  3. `AIServiceBackend.schema.prefix: /v1beta/openai` — Gemini's
+     OpenAI-compatible API lives under a path prefix, NOT at the root (unlike
+     DeepSeek). EAG forwards `/v1/chat/completions` as `{prefix}/chat/completions`.
+  Verified: `curl` via gateway with `x-ai-eg-model: gemini-3.5-flash-lite` → 200.
 * Known harmless EPP log line under load: "Request latency values are invalid
   for TPOT calculation" — fires when a generation ends at/just after the first
   token (very short `max_tokens`); non-fatal, request still 200.

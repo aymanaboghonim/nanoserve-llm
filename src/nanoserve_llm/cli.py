@@ -1,9 +1,9 @@
 """NanoServe CLI — ``nanoserve-llm doctor`` hardware/config sanity check.
 
 The Blueprint's Phase 1 gates everything on the hardware fence (12GB RAM /
-8GB VRAM / 4GB KV budget). ``doctor`` surfaces the *actual* machine state next
-to the *configured* constants so a mismatch is visible before any load test or
-deployment step.
+8GB VRAM, ~6.4GB vLLM budget at util 0.80). ``doctor`` surfaces the actual
+machine state next to the *configured* constants so a mismatch is visible
+before any load test or deployment step.
 """
 
 from __future__ import annotations

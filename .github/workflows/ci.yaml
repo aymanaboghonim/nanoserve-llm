@@ -1,0 +1,46 @@
+# NanoServe hermetic CI — lint, types, and mocked unit tests only.
+#
+# Scope (per plan):
+#   - runs-on: ubuntu-latest
+#   - ruff check, mypy src/, hermetic pytest over tests/ (NOT evals — those need
+#     a live endpoint; NOT tests/e2e — gated behind NANOSERVE_E2E_LIVE=1)
+#   - Every /v1/chat/completions call is mocked with respx (tests/
+#     test_contract_mocked.py). Zero live network calls to GPUs or external
+#     APIs — this job is fully hermetic.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.x"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync hermetic environment (default groups only)
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy src/)
+        run: uv run mypy src/
+
+      - name: Hermetic unit + mocked contract tests
+        run: uv run pytest tests -q

@@ -1,0 +1,37 @@
+# Permissive CORS for the serving gateway (Repository 2 readiness).
+#
+# Envoy Gateway SecurityPolicy (gateway.envoyproxy.io/v1alpha1) targeting the
+# Gateway itself — applies to every route on both listeners (:80, :8000).
+# Browser frontends (or the Repo-2 web UI) calling localhost:8000/v1 from a
+# different origin get preflight + CORS headers; server-side agents (Python /
+# curl in Docker) are unaffected (no Origin header is sent).
+#
+# NOTE: Envoy's CORS filter only ANSWERS preflights and adds response headers;
+# browsers enforce. OPTIONS must match the AI route — verified in Phase 3
+# (see verify.sh cors check); if EAG's ext-proc ever swallows preflights, the
+# fallback is a route-level policy on the KServe-generated chat route.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: cors-open
+  namespace: kserve
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: kserve-gateway
+  cors:
+    allowOrigins:
+      - "*"
+    allowMethods:
+      - GET
+      - POST
+      - OPTIONS
+    allowHeaders:
+      - Content-Type
+      - Authorization
+      - x-ai-eg-model
+      - x-user-id
+    exposeHeaders:
+      - x-ai-eg-model
+    maxAge: 86400s

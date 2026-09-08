@@ -1,0 +1,35 @@
+# Static hostPath PV backing the model weights (out-of-pod download pipeline).
+#
+# Replaces the local-path dynamically-provisioned PVC: scripts/download_model.sh
+# (-> `make download-model`) downloads the weights into the host HuggingFace
+# cache (~/.cache/huggingface/hub) and MATERIALIZES a flat, symlink-free dir
+# (HF hub snapshots use blobs/ symlinks that break bind mounts) at
+#   ${NANOSERVE_MODEL_CACHE:-~/.cache/nanoserve/models}/<repo-id>
+#
+# This PV points straight at that flat dir, so KServe's pvc:// mount exposes
+# the model files at /mnt/models exactly like the old copy-pod flow did.
+#
+# SINGLE-HOST repo caveat: the hostPath is machine-specific. If you override
+# NANOSERVE_MODEL_CACHE, regenerate this file's path (or keep the default).
+# The PV path must exist BEFORE apply (kubectl apply validates lazily at pod
+# mount time; verify.sh asserts the PV is Bound).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nanoserve-model-cache-pv
+  labels:
+    app: nanoserve-model-cache
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    # Flat materialized dir for the AutoRound/AWQ INT4 export of
+    # ibm-granite/granite-4.2-3b (config.json with embedded quantization_config,
+    # model.safetensors, chat_template.jinja, granite_thinking_parser.py,
+    # tokenizer files at the ROOT — vLLM serves /mnt/models).
+    path: /home/ayman/.cache/nanoserve/models/ibm-granite/granite-4.2-3b-awq-int4
+    type: Directory
