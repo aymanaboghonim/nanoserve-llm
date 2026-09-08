@@ -1,6 +1,6 @@
 """LLM-as-judge quality tests using DeepEval's G-Eval metric.
 
-The served model (Phase 3+) acts as both the system under test and the judge —
+The served model acts as both the system under test and the judge —
 zero torch, zero external APIs, fully local (matches the Blueprint's
 "programmatic evaluation suite ... assert correctness, structural integrity,
 and latency thresholds").

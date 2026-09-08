@@ -7,7 +7,7 @@ Two hard requirements drive this module:
    ``eval`` group. All heavy imports happen lazily inside fixtures.
 
 2. **Live-endpoint gating.** Every test here is ``e2e``-marked and skipped unless
-   ``NANOSERVE_EVAL_LIVE=1`` (a live vLLM endpoint must exist, Phase 3+).
+   ``NANOSERVE_EVAL_LIVE=1`` (a live vLLM endpoint must exist).
 """
 
 from __future__ import annotations

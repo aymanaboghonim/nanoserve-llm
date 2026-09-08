@@ -60,32 +60,30 @@ spec:
           - name: VLLM_ADDITIONAL_ARGS
             # Hardware fence: 6.4GB VRAM budget on the RTX 3070 (0.80 x 8GB).
             # Empirical (nvidia-smi, WSL2): total card 8192MiB; desktop/display
-            # holds ~0.7GB, so 0.80 leaves a ~1.2GB safe net for desktop spikes
-            # (0.90 would leave ~0.3GB -> CUDA OOM risk). INT4 weights ~2.7GB;
-            # the rest is fp8 KV cache (~92K tokens at 0.80 vs 43.5K at 0.55).
+            # holds ~0.7GB, so 0.80 leaves ~1GB net for desktop spikes (0.90
+            # would leave ~0.3GB -> CUDA OOM risk). INT4 weights ~2.5GB; the
+            # rest is the fp8 KV cache (~97K-token pool).
             # --kv-cache-dtype fp8: VERIFIED ACTIVE on sm_86 in this vLLM build
             #   ("Using fp8 data type to store kv cache") — halves KV bytes.
-            # max-model-len 32768: agent/RAG headroom — Repo-2 stuffs retrieved
-            #   legal chunks + multi-turn history + (optional) thinking traces.
+            # max-model-len 32768: agent/RAG headroom — retrieved legal
+            #   chunks + multi-turn history + (optional) thinking traces.
             #   Safe: the fp8 KV pool (~97K tokens) is FIXED by the 0.80 memory
             #   budget and does NOT grow with max-model-len (verified 4K->8K kept
             #   it at 97,136). Raising the ceiling only trims worst-case
             #   concurrency: ~3 full-32K concurrent streams (chunked prefill on),
             #   more when requests are shorter — ample for a single RAG agent.
-            # --enable-prefix-caching: KV reuse across Repo-2's shared system
-            #   prompt (RAG agent context) — big decode savings.
-            # --enable-auto-tool-choice + --tool-call-parser qwen3_coder: OpenAI
-            #   function-calling contract (Repo-2 agent; IBM-recommended for
-            #   Granite 4.2, verified present in this runtime).
-            # --quantization awq_marlin: Marlin GEMM path (vLLM reports model IS
-            #   convertible; "awq" forced path is slower). Revert to awq if init
-            #   fails on this asymmetric (zero_point) export.
+            # --enable-prefix-caching: KV reuse across an agent's shared
+            #   system prompt (RAG context) — big decode savings.
+            # --enable-auto-tool-choice + --tool-call-parser qwen3_coder:
+            #   OpenAI function-calling contract (agent tool use;
+            #   IBM-recommended for Granite 4.2, verified present in this
+            #   runtime).
+            # --quantization awq_marlin: Marlin GEMM path (verified against this
+            #   asymmetric zero_point export; plain "awq" is slower).
             # Reasoning: request-controlled via chat_template_kwargs
-            #   enable_thinking; when enabled, split <think> out of the reply
-            #   content into reasoning_content using IBM's granite_thinking_parser
-            #   (ships in the model dir -> mounted at /mnt/models). If the plugin
-            #   import fails at startup, drop these two args and <think> stays in
-            #   content (Repo-2 parses or disables thinking).
+            #   enable_thinking; when enabled, the granite_thinking_parser
+            #   plugin (ships in the model dir -> mounted at /mnt/models) splits
+            #   the <think> trace out of content into the `reasoning` field.
             # max_num_seqs 16: cap concurrent decode sequences so the scheduler
             # forms a visible `waiting` queue under load (queueing test lever).
             value: "--gpu-memory-utilization 0.80 --max-model-len 32768 --enforce-eager --max-num-seqs 16 --enable-prefix-caching --enable-auto-tool-choice --tool-call-parser qwen3_coder --quantization awq_marlin --kv-cache-dtype fp8 --reasoning-parser granite_thinking_parser --reasoning-parser-plugin /mnt/models/granite_thinking_parser.py"
@@ -95,8 +93,6 @@ spec:
           # find it at link time without writing to the read-only /usr/lib64.
           - name: LIBRARY_PATH
             value: "/usr/local/cuda-13.0/compat"
-          # VLLM_USE_V1=0 did NOT bypass the Triton compile in this vLLM build —
-          # kept off; LIBRARY_PATH is the actual fix.
         resources:
           requests:
             cpu: "2"

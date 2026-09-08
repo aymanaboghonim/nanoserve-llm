@@ -1,3 +1,9 @@
+> **Design history (2026-09-08).** This document records the phased design
+> intent, decisions taken along the way, and operational lessons learned during
+> build-out (many manifest files carry the same lessons inline at their point
+> of use). The authoritative current state — what is deployed, measured
+> numbers, and reproduction steps — lives in the README.
+
 ### Blueprint: Project NanoServe
 
 **Architecture Synopsis:** A highly constrained, end-to-end local MLOps pipeline designed to execute GenAI serving, load testing, and telemetry on 12GB system RAM and 8GB VRAM. It leverages KServe's specialized `LLMInferenceService` Custom Resource Definition (CRD) to bypass legacy predictive ML architecture and manage the vLLM engine natively.
@@ -137,14 +143,11 @@ Execute continuous stress testing against the deployed engine to validate stabil
 * All load/eval runs target the **serving gateway** (Envoy → EPP → pool), NOT the
   pod directly — that is the real deployment path. `make eval` / `make load` /
   `make bench` resolve the LB address dynamically and default to it.
-* Validation results (2026-09-08): DeepEval contract + quality suite green via
-  gateway (self-judged G-Eval on the served Granite, 9 passed); live Repo-2
-  contract suites green (healthz / Gemini-route / SSE / tool-calling, 8
-  passed); streaming benchmark TTFT ~59ms / ITL ~23ms / ~43 tok/s (thinking
-  off); saturation stress 20u plateau / 44u held spike with 3K-token RAG
-  contexts = 2,288 requests, 0 failures, peak KV ~51% + 28-deep scheduler
-  queue at --max-num-seqs 16 (see README Measured results). No vLLM/gateway
-  restarts under load.
+* Validation results are single-sourced in the README "Measured results"
+  table (2026-09-08, this box, via the gateway): DeepEval 9 passed, live agent
+  contract suites 8 passed, streaming TTFT ~59ms / ITL ~23ms / ~43 tok/s, and
+  a saturation stress of 2,288 requests / 0 failures at peak KV ~51%. No
+  vLLM/gateway restarts under load.
 * **Tier-2 (Google Gemini) required the same two missing pieces** DeepSeek
   did, plus one more:
   1. `BackendTLSPolicy` (`gateway.networking.k8s.io/v1`, NOT `v1alpha3` — the

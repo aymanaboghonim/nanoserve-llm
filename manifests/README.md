@@ -39,8 +39,8 @@ Host-level (non-manifest) config lives in `infra/`: `wslconfig.example`,
 | `quotapolicy.yaml` | Per-user token quota on the Tier-2 backend (`gemini-3.5-flash-lite`) |
 | `backendtrafficpolicy-local.yaml` | `AdmissionControl` on the LOCAL Tier-1 route (KV-cache protection under load) |
 | `backendtrafficpolicy-rate-limit.yaml` | Per-`x-user-id` 20 req/min global rate limit on the local route (429 lever for the load suite) |
-| `cors-policy.yaml` | Gateway-level permissive CORS (Repository-2 web clients) |
-| `healthz-route.yaml` | `/healthz` → vLLM `/health` via URLRewrite (Repository-2 probe) |
+| `cors-policy.yaml` | Gateway-level permissive CORS (agent web clients) |
+| `healthz-route.yaml` | `/healthz` → vLLM `/health` via URLRewrite (agent probe) |
 | `model-pv.yaml` | Static hostPath PV → host-side flat model dir (`make download-model`) |
 | `model-pvc.yaml` | Claim statically bound to `nanoserve-model-cache-pv` (pvc:// mount) |
 | `request-mirror-shadow.yaml` | RequestMirror shadow-test of Tier 2 (fire-and-forget) — **disabled** |
@@ -88,8 +88,8 @@ make secret-grafana      # apply the admin Secret from gitignored .env
 ## Conventions
 
 - Every YAML is validated by pre-commit (`check-yaml`) before commit.
-- Resource limits must respect the hardware fence: 12GB RAM / 8GB VRAM, 4GB
-  KV-cache budget (see `src/nanoserve_llm/config.py`).
+- Resource limits must respect the hardware fence: 12GB RAM / 8GB VRAM
+  (~6.4GB vLLM budget at util 0.80; see `src/nanoserve_llm/config.py`).
 
 ## Layout
 

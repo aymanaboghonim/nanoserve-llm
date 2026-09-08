@@ -2,7 +2,7 @@
 
 These assert *structural* correctness: HTTP status, JSON shape, usage fields,
 model echo, and a soft latency budget. No LLM-as-judge involved — deterministic
-and fast. All tests require a live endpoint (Phase 3+); see ``conftest.py``.
+and fast. All tests require a live endpoint; see ``conftest.py``.
 """
 
 from __future__ import annotations

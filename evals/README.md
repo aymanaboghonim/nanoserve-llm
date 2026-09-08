@@ -11,7 +11,7 @@ local, no torch, no external APIs.
   ```bash
   uv sync --group eval
   ```
-- A live endpoint (Phase 3+) and `NANOSERVE_EVAL_LIVE=1`:
+- A live endpoint and `NANOSERVE_EVAL_LIVE=1`:
   ```bash
   export NANOSERVE_EVAL_LIVE=1
   ```
@@ -22,7 +22,7 @@ Without a live endpoint, every test here **skips** cleanly:
 
 ```bash
 uv run --group eval pytest evals -v
-# -> 13 skipped (e2e: requires a live endpoint; set NANOSERVE_EVAL_LIVE=1)
+# -> 9 skipped (e2e: requires a live endpoint; set NANOSERVE_EVAL_LIVE=1)
 ```
 
 With a live endpoint (via the serving gateway — exercises Envoy + EPP):

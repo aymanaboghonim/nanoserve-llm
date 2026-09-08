@@ -1,4 +1,4 @@
-"""Hermetic Repository-2 contract tests (fully mocked, zero live network).
+"""Hermetic agent contract tests (fully mocked, zero live network).
 
 These tests prove the immutable OpenAI-compatible contract that the downstream
 Arabic Legal RAG Agent consumes — model echo, SSE streaming shape, and
@@ -128,7 +128,7 @@ class TestChatCompletionContract:
 
     def test_tool_calls_json_schema_passthrough(self, openai_via) -> None:
         """tool_calls must carry id/type/function{name,arguments-JSON} — the
-        exact shape Repository 2's agent parses."""
+        exact shape an agent parses."""
         args = json.dumps({"case_number": "2024/42"})
         router = respx.Router()
         router.post(f"{MOCK_BASE_URL}/v1/chat/completions").mock(
@@ -220,7 +220,7 @@ def _stream_router(content: str) -> respx.Router:
 class TestStreamingContract:
     def test_sse_stream_parses_without_buffering(self, openai_via) -> None:
         """Gateway must pass text/event-stream through unfragmented — the SSE
-        contract Repository 2 consumes (no RequestBuffer on this route)."""
+        contract agent consumes (no RequestBuffer on this route)."""
         chunks = list(
             openai_via(_stream_router(_sse_body())).chat.completions.create(
                 **_chat_body(stream=True)  # type: ignore[arg-type]

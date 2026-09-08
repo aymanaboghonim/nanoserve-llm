@@ -1,4 +1,4 @@
-# Repository-2 Integration Contract — NanoServe Gateway API
+# Agent Integration Contract — NanoServe Gateway API
 
 **Status:** v1.0 (2026-09-08) · **Platform:** single-node K3s/KServe/vLLM (IBM
 Granite 4.2-3B AWQ INT4, RTX 3070 8GB) · **Consumers:** downstream agents
@@ -20,9 +20,8 @@ the portable conformance suite lives at [`contract_tests/`](../contract_tests/).
 | Liveness probe | `http://<host>:8000/healthz` — note: at the **root**, not under `/v1` |
 
 `<gateway-LB>` is the Envoy Gateway load-balancer address (resolved from the
-cluster; currently `192.168.1.43`, reassigns on host restarts). Configure it
-once in Repo-2 as an environment/constructor value — the contract itself is
-host-agnostic.
+cluster; it can change when the host restarts). Configure it once in the agent
+as an environment/constructor value — the contract itself is host-agnostic.
 
 **Auth:** none required. vLLM's default API key is `EMPTY`; the OpenAI SDK
 sends `Authorization: Bearer EMPTY` by default — leave it as-is.
@@ -45,7 +44,7 @@ MODEL = "ibm-granite/granite-4.2-3b"       # EXACT served name (see /v1/models)
 ```
 
 > Do **not** send an `x-user-id` header: the gateway rate-limits per that
-> header (20 req/min → 429) and it exists only as a load-test lever. Repo-2
+> header (20 req/min → 429) and it exists only as a load-test lever. The agent
 > should rate-limit **client-side** (e.g. `aiolimiter`) instead.
 
 ---
@@ -166,7 +165,7 @@ is genuinely useful for complex legal reasoning but it **consumes the
 | Content-only (default for this consumer) | `chat_template_kwargs: {"enable_thinking": False}` | `content` = answer; no `reasoning` |
 | With reasoning | `chat_template_kwargs: {"enable_thinking": True}` | `content` = final answer **and** `reasoning` = think trace |
 
-Rules of thumb for Repo-2:
+Rules of thumb for the agent:
 - Always send the explicit `chat_template_kwargs` — never rely on the default.
 - Simple retrieval / tool calls: thinking off (fast, deterministic).
 - Ambiguous multi-article or synthesis questions: thinking on; allow
@@ -189,7 +188,7 @@ Rules of thumb for Repo-2:
 
 ## 7. Errors and resilience
 
-| Code | Meaning | Repo-2 behavior |
+| Code | Meaning | Agent behavior |
 | --- | --- | --- |
 | `400` | Malformed request or validation (OpenAI `{"error": {...}}`). | Fix payload; log body for debugging. |
 | `429` | **Only** if `x-user-id` sent (>20 req/min). | Don't send the header; client-side `aiolimiter`. |
@@ -227,7 +226,7 @@ The local model is the default. Requests carrying the header
 `x-ai-eg-model: gemini-3.5-flash-lite` are routed to Google AI Studio
 (Gemini 3.5 Flash Lite) through the same `/v1/chat/completions` surface —
 useful as a fallback for very long contexts or when the local box is busy.
-Repo-2 can implement a simple header-based failover: try local; on 503,
+The agent can implement a simple header-based failover: try local; on 503,
 retry once with the Gemini header.
 
 ---
@@ -247,4 +246,4 @@ uv run --group dev pytest contract_tests -v          # from this repo
 
 Passing the suite against a deployment is the definition of "the contract
 holds". Version bumps to this doc or the OpenAPI spec are the changelog — pin
-the commit/tag you validated against in Repo-2.
+the commit/tag you validated against in the agent project.

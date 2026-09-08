@@ -1,6 +1,6 @@
 """Chat completion contract: non-stream shape + SSE stream passthrough.
 
-Repository 2 consumes tokens over SSE (LangGraph astream) and structured
+The agent consumes tokens over SSE (LangGraph astream) and structured
 non-stream responses — both must be standard OpenAI shape, un-buffered.
 """
 
@@ -46,7 +46,7 @@ def test_non_stream_returns_openai_shape(client, model: str) -> None:
 
 
 def test_arabic_content_roundtrip(client, model: str) -> None:
-    """Repository 2 is an ARABIC legal agent — Arabic must work end to end."""
+    """An integrated agent may be an Arabic legal agent — Arabic must work end to end."""
     data = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": "مرحباً، ما هو القانون المدني؟ أجب بجملة واحدة."}],
@@ -88,13 +88,13 @@ def test_raw_sse_shape_and_done_sentinel(gateway_root: str, model: str) -> None:
         # Raw HTTP (no SDK): chat_template_kwargs is a top-level extra body field.
         **{"chat_template_kwargs": {"enable_thinking": False}},
     }
-    with httpx.Client(timeout=30.0) as c:
-        with c.stream(
-            "POST", f"{gateway_root}/v1/chat/completions", json=body
-        ) as resp:
-            assert resp.status_code == 200
-            assert resp.headers["content-type"].startswith("text/event-stream")
-            lines = [ln for ln in resp.iter_lines() if ln]
+    with (
+        httpx.Client(timeout=30.0) as c,
+        c.stream("POST", f"{gateway_root}/v1/chat/completions", json=body) as resp,
+    ):
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        lines = [ln for ln in resp.iter_lines() if ln]
     data_lines = [ln for ln in lines if ln.startswith("data: ")]
     assert data_lines, f"no SSE data lines: {lines[:3]!r}"
     assert data_lines[-1] == "data: [DONE]"

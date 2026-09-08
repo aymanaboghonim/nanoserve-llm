@@ -1,6 +1,6 @@
 """Tool-calling contract: OpenAI JSON-schema tool output through the gateway.
 
-Repository 2's agent relies on deterministic function-calling. vLLM runs with
+An integrated agent relies on deterministic function-calling. vLLM runs with
 --enable-auto-tool-choice + --tool-call-parser qwen3_coder (IBM-recommended
 for Granite 4.2); the gateway must pass the tool_calls envelope through
 untouched.
@@ -56,6 +56,6 @@ def test_tool_call_returns_openai_schema(openai_client: OpenAI, settings: Settin
     tc = message.tool_calls[0]
     assert tc.type == "function"
     assert tc.function.name == "get_case_articles"
-    # arguments must be valid JSON (Repository 2 parses them directly)
+    # arguments must be valid JSON (agent parses them directly)
     args = json.loads(tc.function.arguments)
     assert "case_number" in args

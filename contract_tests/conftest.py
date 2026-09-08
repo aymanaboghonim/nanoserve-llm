@@ -1,9 +1,9 @@
-"""Portable Repository-2 conformance suite.
+"""Portable conformance suite for integrated agents.
 
 This suite is the DECOUPLED definition of "the gateway contract holds". It
 depends only on ``openai`` + ``httpx`` and plain environment variables — it
 does NOT import this repository's package, settings, or manifests. A consumer
-(Repository 2) can run it against any deployment:
+agent can run it against any deployment:
 
     export NANOSERVE_CONTRACT_LIVE=1
     export NANOSERVE_BASE_URL=http://localhost:8000/v1   # default

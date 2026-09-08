@@ -12,8 +12,14 @@
 # dir; KServe mounts it at /mnt/models via pvc://nanoserve-model-cache. The pod
 # NEVER downloads over the network.
 #
-# Default model: ibm-granite/granite-4.2-3b-fp8 (official FP8 compressed-tensors
-# checkpoint served via vLLM Marlin W8A16 on Ampere).
+# Default model: ibm-granite/granite-4.2-3b-awq-int4 — the AutoRound AWQ INT4
+# export the serving plane runs (see llminferenceservice.yaml). NOTE: this
+# export was produced out-of-band (AutoRound in Colab; quantization_config is
+# embedded in config.json) and may not be published under the repo id below.
+# The script stays a generic fetch/materialize pipeline: point MODEL_ID at a
+# real HF repo (the official FP8 checkpoint ibm-granite/granite-4.2-3b-fp8 is
+# the rollback/alternate), or simply rely on the idempotency gate below when
+# the flat dir is already populated (it exits 0 without touching the network).
 #
 # Download modes:
 #   MODE=hub (default): huggingface_hub snapshot_download into the standard HF
@@ -28,8 +34,8 @@
 #   HF_ENDPOINT=https://hf-mirror.com make download-model
 #
 # Usage:
-#   make download-model   # default: ibm-granite/granite-4.2-3b-fp8
-#   MODEL_ID=<org>/<model> make download-model   # (alt models / rollback)
+#   make download-model   # default: ibm-granite/granite-4.2-3b-awq-int4
+#   MODEL_ID=<org>/<model> make download-model   # alt models / rollback
 #
 # Env:
 #   HF_HOME / HF_HUB_CACHE   hub cache location (MODE=hub)
@@ -44,7 +50,7 @@
 # model.safetensors the script exits 0 without touching the network.
 set -euo pipefail
 
-MODEL_ID="${MODEL_ID:-ibm-granite/granite-4.2-3b-fp8}"
+MODEL_ID="${MODEL_ID:-ibm-granite/granite-4.2-3b-awq-int4}"
 HF_CACHE="${HF_HOME:-${HOME}/.cache/huggingface}"
 FLAT_ROOT="${NANOSERVE_MODEL_CACHE:-${HOME}/.cache/nanoserve/models}"
 DEST="${FLAT_ROOT}/${MODEL_ID}"
@@ -52,16 +58,17 @@ HF_BASE="${HF_ENDPOINT:-https://huggingface.co}"
 CONNS="${CONNS:-8}"
 MODE="${DOWNLOAD_MODE:-hub}"
 
-# Model repo file set. The Granite-4.2 FP8 checkpoint is a single
-# model.safetensors (4.18GB) plus config/tokenizer/chat-template and IBM's
-# granite_thinking_parser.py plugin. .gitattributes/model.sig/recipe.yaml are
-# intentionally skipped (not needed to serve).
+# Model repo file set. The Granite-4.2 AWQ INT4 export is a single
+# model.safetensors (2.48GiB) plus config/tokenizer/chat-template, IBM's
+# granite_thinking_parser.py plugin and the AutoRound quantization_config.json.
+# .gitattributes/model.sig/recipe.yaml are intentionally skipped (not needed to
+# serve).
 FILES=(config.json chat_template.jinja granite_thinking_parser.py \
-       generation_config.json special_tokens_map.json tokenizer.json \
-       tokenizer_config.json merges.txt vocab.json model.safetensors)
+       generation_config.json quantization_config.json special_tokens_map.json \
+       tokenizer.json tokenizer_config.json model.safetensors)
 
-# Weights floor: Granite FP8 is a 4.18GB single file -> 3.5GiB floor.
-MIN_WEIGHTS_BYTES=$(( (1024 * 1024 * 1024 * 7) / 2 ))  # 3.5GiB
+# Weights floor: the AWQ model.safetensors is 2.48GiB -> 2GiB floor.
+MIN_WEIGHTS_BYTES=$((1024 * 1024 * 1024 * 2))  # 2GiB
 
 err() { echo "error: $*" >&2; }
 

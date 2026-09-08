@@ -1,9 +1,9 @@
-# Repository-2 Conformance Suite (`contract_tests/`)
+# Agent Conformance Suite (`contract_tests/`)
 
 Decoupled, portable checks that the NanoServe gateway contract holds against a
 deployment. This suite is intentionally independent of this repository's
 internals — it imports only `openai` + `httpx` and reads plain env vars — so a
-consumer (Repository 2: Arabic Legal RAG Agent) can run it against any
+consumer (e.g. the Arabic Legal RAG Agent) can run it against any
 endpoint (localhost or LAN) as its own acceptance gate.
 
 ## What it verifies

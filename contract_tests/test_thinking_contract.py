@@ -9,7 +9,10 @@ completion must still produce output within budget.
 
 from __future__ import annotations
 
-_PROMPT = "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost? Reason step by step."
+_PROMPT = (  # noqa: E501 - long reasoning fixture
+    "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. "
+    "How much does the ball cost? Reason step by step."
+)
 
 
 def _completion(client, model: str, enable_thinking: bool, max_tokens: int = 256):

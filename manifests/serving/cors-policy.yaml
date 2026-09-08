@@ -1,8 +1,8 @@
-# Permissive CORS for the serving gateway (Repository 2 readiness).
+# Permissive CORS for the serving gateway (agent readiness).
 #
 # Envoy Gateway SecurityPolicy (gateway.envoyproxy.io/v1alpha1) targeting the
 # Gateway itself — applies to every route on both listeners (:80, :8000).
-# Browser frontends (or the Repo-2 web UI) calling localhost:8000/v1 from a
+# Browser frontends (or the agent web UI) calling localhost:8000/v1 from a
 # different origin get preflight + CORS headers; server-side agents (Python /
 # curl in Docker) are unaffected (no Origin header is sent).
 #

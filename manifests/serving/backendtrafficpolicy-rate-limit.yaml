@@ -16,8 +16,8 @@
 #
 # CRITICAL: targetRefs MUST follow the KServe-generated HTTPRoute name, which
 # derives from the LLMISVC name (granite-llm-kserve-route). If the LLMISVC is
-# ever renamed again, retarget this policy — an orphaned targetRef silently
-# disables the 429 lever (this happened in the qwen -> granite rename).
+# ever renamed, retarget this policy — an orphaned targetRef silently disables
+# the 429 lever (a rename already bit this once).
 #
 # NOTE: AdmissionControl + RequestMirror are intentionally NOT used here — see
 # manifests/serving/request-mirror-shadow.yaml (disabled) for the mirroring path.

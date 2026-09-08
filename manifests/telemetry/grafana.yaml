@@ -1,10 +1,11 @@
 # Grafana (read-only provisioning; no dashboard PVC). Admin credentials come
 # from the grafana-admin Secret, applied via `make secret-grafana` from the
-# gitignored .env (never committed).
+# exported GRAFANA_ADMIN_PASSWORD (never committed).
 #
-# Reached through the serving gateway (kserve-gateway) at
-#   http://grafana.192.168.1.2.nip.io   (grafana-route.yaml)
-#   kubectl -n monitoring port-forward svc/grafana 3000:3000   # fallback
+# Default access (no IP dependency):  make observability
+#   -> http://localhost:3000   (kubectl port-forward svc/grafana 3000:3000)
+# Optional LAN access via the gateway hostname route (grafana-route.yaml),
+# which must be re-pointed at the current gateway LB — see that file.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -49,7 +50,10 @@ spec:
                   name: grafana-admin
                   key: admin-password
             - name: GF_SERVER_ROOT_URL
-              value: http://grafana.192.168.1.2.nip.io
+              # Relative: works identically via `make observability`
+              # (http://localhost:3000) and via any gateway hostname route —
+              # no hardcoded LB/IP (WSL reassigns addresses on restart).
+              value: /
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
             - name: GF_AUTH_ANONYMOUS_ENABLED

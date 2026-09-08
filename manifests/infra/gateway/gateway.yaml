@@ -7,7 +7,7 @@
 #
 # Listeners:
 #   - http (port 80):       legacy dev surface (hello, grafana hostname route).
-#   - http-8000 (port 8000): Repository-2 immutable contract surface —
+#   - http-8000 (port 8000): the agent-facing immutable contract surface —
 #     http://localhost:8000/v1 (WSL2 mirrored networking binds the servicelb LB
 #     to localhost:8000). KServe's chat route + the explicit /healthz route
 #     attach to both listeners (no hostname/sectionName filtering).

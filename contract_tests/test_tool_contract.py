@@ -1,6 +1,6 @@
 """Tool-calling contract: OpenAI JSON-schema tool output through the gateway.
 
-Repository 2's LangGraph agent binds tools (e.g. legal-article retrieval).
+An integrated agent (LangGraph) binds tools (e.g. legal-article retrieval).
 vLLM runs --enable-auto-tool-choice + --tool-call-parser qwen3_coder; the
 gateway must pass the tool_calls envelope through untouched.
 """
@@ -28,7 +28,10 @@ TOOLS = [
     }
 ]
 
-PROMPT = "Use the get_case_articles tool with case_number 2024/42. Reply only with the tool call, nothing else."
+PROMPT = (  # noqa: E501 - long tool-call fixture
+    "Use the get_case_articles tool with case_number 2024/42. "
+    "Reply only with the tool call, nothing else."
+)
 
 _EXTRA = {"chat_template_kwargs": {"enable_thinking": False}}
 

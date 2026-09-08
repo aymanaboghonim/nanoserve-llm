@@ -1,6 +1,6 @@
 """Streaming contract: SSE (text/event-stream) must pass through un-buffered.
 
-Repository 2 consumes tokens over SSE; any gateway buffering would destroy
+The agent consumes tokens over SSE; any gateway buffering would destroy
 TTFT/inter-token latency. Timeouts on the KServe route are already 300s, and
 no RequestBuffer policy exists on the AI routes.
 """

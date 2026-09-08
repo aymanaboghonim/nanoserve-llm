@@ -1,5 +1,5 @@
 # Grafana provisioning: NanoServe vLLM dashboard (read-only).
-# Metric names verified against the live vLLM /metrics export (2026-09-07):
+# Metric names verified against the live vLLM /metrics export (2026-09-08):
 #   vllm:kv_cache_usage_perc, vllm:num_requests_running/waiting,
 #   vllm:time_to_first_token_seconds (histogram),
 #   vllm:request_decode_time_seconds (histogram),

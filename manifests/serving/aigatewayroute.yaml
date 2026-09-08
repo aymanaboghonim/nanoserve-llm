@@ -3,8 +3,8 @@
 # The LOCAL Tier-1 model is routed by KServe's own generated HTTPRoute
 # (granite-llm-kserve-route → InferencePool → Envoy Gateway/GIE), so this
 # AIGatewayRoute carries ONLY the cloud Gemini rule. The AI-GW controller
-# resolves AIGatewayRoute backendRefs as AIServiceBackends (it cannot target
-# an InferencePool) — mixing them is what the audit flagged.
+# resolves AIGatewayRoute backendRefs as AIServiceBackends — it cannot target
+# an InferencePool, so the two traffic classes must live on separate routes.
 #
 # Model selection is by HTTP header match (`x-ai-eg-model`).
 #   - x-ai-eg-model: gemini-3.5-flash-lite  → Google AI Studio Tier-2

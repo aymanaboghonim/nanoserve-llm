@@ -1,6 +1,6 @@
-# Gateway-level /healthz contract (Repository 2 readiness).
+# Gateway-level /healthz contract (agent readiness).
 #
-# Repo-2 probes http://localhost:8000/healthz before issuing chat requests.
+# The agent probes http://localhost:8000/healthz before issuing chat requests.
 # Native vLLM exposes its health check at EXACTLY /health (the KServe
 # llm-d-cuda template's liveness/readiness/startup probes all use
 # httpGet.path=/health on :8000), so the gateway maps the external /healthz to

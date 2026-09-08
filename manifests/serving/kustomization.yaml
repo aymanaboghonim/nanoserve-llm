@@ -8,11 +8,11 @@ resources:
   - backendsecuritypolicy-gemini.yaml  # EAG API-key injection (Tier 2 auth)
   - aiservicebackend-gemini.yaml   # OpenAI schema + /v1beta/openai prefix
   - aigatewayroute.yaml            # two-tier per-model routing
-  - quotapolicy.yaml               # Tier-2 quota (Repo-2 owns rate limiting)
+  - quotapolicy.yaml               # Tier-2 quota (agent owns rate limiting)
   - backendtrafficpolicy-local.yaml  # AdmissionControl: LOCAL Tier-1 KV protection
   - backendtrafficpolicy-rate-limit.yaml  # per-x-user-id 20 req/min 429 lever (load suite)
-  - cors-policy.yaml               # gateway-level permissive CORS (Repo-2 web UI)
-  - healthz-route.yaml             # /healthz -> vLLM /health (Repo-2 probe)
+  - cors-policy.yaml               # gateway-level permissive CORS (agent web UI)
+  - healthz-route.yaml             # /healthz -> vLLM /health (agent probe)
   - model-pv.yaml                  # static hostPath PV (host model cache)
   - model-pvc.yaml                 # claim statically bound to the PV
   - otel-collector.yaml            # OTel Collector (tracing ingest)

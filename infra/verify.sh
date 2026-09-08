@@ -156,11 +156,11 @@ if kubectl get pv nanoserve-model-cache-pv >/dev/null 2>&1; then
     test -f "$(kubectl get pv nanoserve-model-cache-pv -o jsonpath='{.spec.hostPath.path}' 2>/dev/null)/model.safetensors"
 fi
 
-# --- Repository-2 contract surface checks (Phase 3/4) ---
+# --- agent contract surface checks (Phase 3/4) ---
 check "gateway :8000 listener present" \
   test -n "$(kubectl get gateway kserve-gateway -n kserve -o jsonpath='{.spec.listeners[?(@.name=="http-8000")].port}' 2>/dev/null)"
 if [[ -n "${GW_ADDR:-}" ]]; then
-  # /healthz is the Repo-2 probe -> URLRewrite to vLLM /health (port 8000 listener).
+  # /healthz is the agent probe -> URLRewrite to vLLM /health (port 8000 listener).
   HZ_CODE="$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://${GW_ADDR}:8000/healthz" 2>/dev/null)"
   check "gateway /healthz returns 200 (:8000)" test "${HZ_CODE}" = "200"
   # CORS preflight against the AI route (permissive SecurityPolicy).
@@ -208,10 +208,18 @@ if kubectl get sts -n monitoring prometheus-prometheus-operator-kube-p-prometheu
     test "$(kubectl get httproute grafana -n monitoring \
       -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = "True"
   if [[ -n "${GW_ADDR:-}" ]]; then
-    GF_CODE="$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
-      -H 'Host: grafana.192.168.1.2.nip.io' \
-      "http://${GW_ADDR}/api/health" 2>/dev/null)"
-    check "Grafana /api/health 200 via gateway" test "${GF_CODE}" = "200"
+    # Host header comes from the ROUTE's actual hostname (nip.io need not
+    # resolve — Envoy matches on the HTTP Host header), so this stays green
+    # whatever the current gateway LB / hostname are.
+    GF_HOST="$(kubectl get httproute grafana -n monitoring -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
+    if [[ -n "${GF_HOST}" ]]; then
+      GF_CODE="$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
+        -H "Host: ${GF_HOST}" \
+        "http://${GW_ADDR}/api/health" 2>/dev/null)"
+      check "Grafana /api/health 200 via gateway" test "${GF_CODE}" = "200"
+    else
+      info "grafana route has no hostname — skipping"
+    fi
   else
     info "no gateway address — skipping Grafana route check"
   fi

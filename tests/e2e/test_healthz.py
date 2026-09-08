@@ -1,6 +1,6 @@
 """Health contract: the gateway must expose /healthz on port 8000.
 
-Repository 2 health-checks the platform at http://localhost:8000/healthz
+An integrated agent health-checks the platform at http://localhost:8000/healthz
 before issuing chat requests. The gateway maps it to vLLM's native /health
 (KServe template probes use /health on :8000).
 """

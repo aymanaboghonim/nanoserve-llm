@@ -5,7 +5,7 @@ info:
   description: >
     Immutable API contract served by the NanoServe single-node platform
     (IBM Granite 4.2-3B AWQ INT4 on a WSL2 + k3s box) for downstream
-    consumers (Repository 2: Arabic Legal RAG Agent).
+    integrated agents (e.g. an Arabic legal RAG agent).
 
     The gateway is OpenAI-compatible: consumers use the standard OpenAI SDK /
     AsyncOpenAI with `base_url`. Non-SDK consumers must reproduce the exact
@@ -29,16 +29,15 @@ servers:
   - url: http://localhost:8000/v1
     description: Same-host access (WSL2 mirrored networking)
   - url: http://{gateway-lb}:8000/v1
-    description: LAN access via the gateway load-balancer address
+    description: LAN access via the gateway load-balancer address (set the variable)
     variables:
       gateway-lb:
-        default: 192.168.1.43
         description: Resolve via `kubectl get gateway kserve-gateway -n kserve`
 paths:
   /healthz:
     get:
       operationId: healthz
-      summary: Liveness probe for Repository-2 (mapped to vLLM /health)
+      summary: Liveness probe for integrated agents (mapped to vLLM /health)
       description: >
         Probe BEFORE issuing chat requests. Returns HTTP 200 with an EMPTY
         body when the platform is ready (newer vLLM drops the textual body —
@@ -98,7 +97,7 @@ paths:
           schema: { type: string }
           description: >
             WARNING: if sent, the gateway rate-limits this user to 20
-            req/min (HTTP 429). Repository-2 should NOT send this header.
+            req/min (HTTP 429). The agent should NOT send this header.
       requestBody:
         required: true
         content:
@@ -190,7 +189,9 @@ components:
             - type: array
               description: multimodal parts (text supported)
         tool_calls: { type: array, description: assistant turn tool calls (tool-call round-trips) }
-        tool_call_id: { type: string, description: tool role: which call this result answers }
+        tool_call_id:
+          type: string
+          description: "tool role: which call this result answers"
         name: { type: string }
     Tool:
       type: object

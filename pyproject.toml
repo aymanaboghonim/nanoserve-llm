@@ -70,7 +70,7 @@ warn_redundant_casts = true
 testpaths = ["tests", "evals"]
 markers = [
     "e2e: tests that require a live model endpoint (NANOSERVE_EVAL_LIVE=1)",
-    "live_contract: Repository-2 contract tests requiring the live gateway (NANOSERVE_E2E_LIVE=1)",
+    "live_contract: agent contract tests requiring the live gateway (NANOSERVE_E2E_LIVE=1)",
 ]
 addopts = "-ra"
 filterwarnings = [

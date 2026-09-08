@@ -165,7 +165,7 @@ class Eval(BaseSettings):
 
 
 class E2E(BaseSettings):
-    """Live end-to-end contract test gate (tests/e2e — Repository 2 contract).
+    """Live end-to-end contract test gate (tests/e2e — agent contract).
 
     The suites in ``tests/e2e`` assert the immutable HTTP contract that the
     downstream Arabic Legal RAG Agent consumes: /healthz, SSE streaming,

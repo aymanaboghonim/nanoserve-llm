@@ -1,4 +1,4 @@
-"""Live Repository-2 contract suites (tests/e2e).
+"""Live agent contract suites (tests/e2e).
 
 Gating: every test here is skipped at collection time unless
 ``NANOSERVE_E2E_LIVE=1`` (see ``config.E2E``). A developer running plain
@@ -59,7 +59,7 @@ def settings() -> Settings:
 
 @pytest.fixture(scope="session")
 def base_url(settings: Settings) -> str:
-    # Repository-2 immutable contract: http://localhost:8000/v1 by default,
+    # The agent-facing immutable contract: http://localhost:8000/v1 by default,
     # overridable via NANOSERVE_BASE_URL.
     return settings.serving.base_url
 
