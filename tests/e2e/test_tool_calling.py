@@ -1,9 +1,9 @@
 """Tool-calling contract: OpenAI JSON-schema tool output through the gateway.
 
 Repository 2's agent relies on deterministic function-calling. vLLM runs with
---enable-auto-tool-choice + --tool-call-parser hermes (this runtime build has
-no native qwen25 parser); the gateway must pass the tool_calls envelope
-through untouched.
+--enable-auto-tool-choice + --tool-call-parser qwen3_coder (IBM-recommended
+for Granite 4.2); the gateway must pass the tool_calls envelope through
+untouched.
 """
 
 from __future__ import annotations

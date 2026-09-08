@@ -21,7 +21,7 @@ SHELL := /bin/bash
 KUBECTL ?= kubectl
 PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: install-clis bootstrap verify apply download-model secret serve test-unit test-e2e bench eval load stress trace telemetry secret-grafana argo check clean
+.PHONY: install-clis bootstrap verify apply download-model secret serve test-unit test-e2e contract-test bench eval load stress trace telemetry secret-grafana argo check clean
 
 install-clis:           ## Install kubectl/helm/yq into ~/.local/bin (no root)
 	bash infra/install-clis.sh
@@ -75,6 +75,13 @@ test-e2e:               ## Live Repo-2 contract suites (gate on /healthz first)
 	  || { echo "error: gateway /healthz not reachable on localhost:8000 (Repo-2 contract)"; exit 1; }; \
 	echo "==> e2e via http://localhost:8000/v1 (NANOSERVE_E2E_LIVE=1)"; \
 	NANOSERVE_E2E_LIVE=1 uv run pytest tests/e2e -v
+
+contract-test:          ## Portable Repo-2 conformance suite (decoupled; env-driven)
+	@GW=$$($(KUBECTL) get gateway kserve-gateway -n kserve -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); \
+	test -n "$$GW" || { echo "error: kserve-gateway has no address (is it Programmed?)"; exit 1; }; \
+	echo "==> conformance via http://$$GW/v1 (NANOSERVE_CONTRACT_LIVE=1)"; \
+	NANOSERVE_CONTRACT_LIVE=1 NANOSERVE_BASE_URL="http://$$GW/v1" \
+	  uv run pytest contract_tests -v $(CONTRACT_ARGS)
 
 telemetry:              ## Apply Phase 4 telemetry manifests (ServiceMonitors + Grafana)
 	make prometheus-operator

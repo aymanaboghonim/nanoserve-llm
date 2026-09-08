@@ -16,6 +16,28 @@ repository does and what was measured on that box — nothing aspirational.
 
 ---
 
+## Repository 2 integration (API/platform contract)
+
+This repository is consumed **as an external API platform** — no shared code or
+coupling. Repository 2 (Arabic Legal RAG Agent, FastAPI + LangGraph, asyncio)
+needs only a base URL + the model id and the standard `AsyncOpenAI` client:
+
+- **Contract doc** (authoritative handoff): [`docs/repo2-api-contract.md`](docs/repo2-api-contract.md)
+- **OpenAPI spec**: [`contracts/openapi.yaml`](contracts/openapi.yaml)
+- **Portable conformance suite** (env-driven, decoupled): [`contract_tests/`](contract_tests/)
+  — run it against any deployment with `make contract-test` (or directly via
+  `NANOSERVE_CONTRACT_LIVE=1 pytest contract_tests -v`)
+
+Surface: `POST /v1/chat/completions` (non-stream + SSE), `GET /v1/models`,
+health probe at `GET /healthz` (root URL, 200/empty). Model:
+`ibm-granite/granite-4.2-3b`. Thinking is request-controlled via
+`chat_template_kwargs.enable_thinking`; tool calling is OpenAI-schema
+(qwen3_coder); Arabic works end to end (verified). Base URL is configurable:
+`http://localhost:8000/v1` (same host) or `http://<gateway-LB>:8000/v1` (LAN).
+Do **not** send `x-user-id` (that header opts into a 20 req/min per-user cap).
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -154,6 +176,9 @@ Numbers are specific to this hardware/date — not a cross-hardware claim.
 ├── infra/                 # host scripts: verify.sh (gate), k3s config
 ├── scripts/               # download_model.sh, latency_benchmark.py, tracer.py
 ├── argo/                  # Argo CD install + app-of-apps (deferred — needs a Git remote)
+├── contracts/             # openapi.yaml — machine-readable API contract (Repo-2 codegen)
+├── contract_tests/        # portable Repo-2 conformance suite (decoupled, env-driven)
+├── docs/                  # repo2-api-contract.md — authoritative integration guide
 ├── evals/                 # pytest: endpoint contract + DeepEval G-Eval (e2e-gated)
 ├── load_tests/            # Locust suite → /v1/chat/completions
 └── tests/                 # unit tests (config, telemetry, CLI) + mocked Repo-2
@@ -176,6 +201,7 @@ make download-model # model weights → host HF cache + flat dir (hostPath PV)
 make apply          # serving-plane manifests (LLMISVC, pool, EPP, tier-2, healthz)
 make secret         # Gemini key → k8s Secret (reads gitignored .env)
 make test-e2e       # live Repo-2 contract suites (gate: /healthz on :8000)
+make contract-test  # portable conformance suite (contract_tests/, env-driven)
 make eval           # DeepEval suite via the gateway
 make load           # Locust smoke via the gateway (8 users / 2 min)
 make bench          # streaming TTFT/ITL benchmark via the gateway
@@ -200,6 +226,7 @@ All settings are env-overridable (`NANOSERVE_*`) or via a local `.env`
 | `NANOSERVE_MODEL` | `ibm-granite/granite-4.2-3b` | model in request payloads |
 | `NANOSERVE_EVAL_LIVE` | `0` | `1` runs the e2e DeepEval tests |
 | `NANOSERVE_E2E_LIVE` | `0` | `1` runs the live Repo-2 contract suites (`tests/e2e`) |
+| `NANOSERVE_CONTRACT_LIVE` | `0` | `1` runs the portable conformance suite (`contract_tests/`) |
 | `GEMINI_API_KEY` / `GRAFANA_ADMIN_PASSWORD` | — | gitignored secrets, applied via `make secret` / `make secret-grafana` |
 | `HF_ENDPOINT` | — | mirror fallback for `make download-model` (e.g. `https://hf-mirror.com`) |
 

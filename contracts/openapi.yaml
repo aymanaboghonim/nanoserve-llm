@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: NanoServe Gateway — OpenAI-compatible contract
+  version: 1.0.0
+  description: >
+    Immutable API contract served by the NanoServe single-node platform
+    (IBM Granite 4.2-3B AWQ INT4 on a WSL2 + k3s box) for downstream
+    consumers (Repository 2: Arabic Legal RAG Agent).
+
+    The gateway is OpenAI-compatible: consumers use the standard OpenAI SDK /
+    AsyncOpenAI with `base_url`. Non-SDK consumers must reproduce the exact
+    request/response shapes below (including SSE for streams).
+
+    Base URLs (configurable by the consumer):
+      - localhost (same host):    http://localhost:8000/v1
+      - LAN (another machine):    http://<gateway-LB>:8000/v1
+    The `/healthz` probe lives at the gateway ROOT (no `/v1`):
+      - localhost: http://localhost:8000/healthz
+
+    Auth: none required for local serving. vLLM's default is api_key "EMPTY"
+    (the OpenAI SDK sends `Authorization: Bearer EMPTY` by default). Do NOT
+    send an `x-user-id` header unless a per-user rate cap is desired (the
+    gateway applies a 20 req/min per-user limit keyed on that header ONLY;
+    requests without it are never rate-limited).
+
+    Model name is exact: `ibm-granite/granite-4.2-3b` (the `/v1/models`
+    response lists it; a `publishers/kserve/...` alias also exists).
+servers:
+  - url: http://localhost:8000/v1
+    description: Same-host access (WSL2 mirrored networking)
+  - url: http://{gateway-lb}:8000/v1
+    description: LAN access via the gateway load-balancer address
+    variables:
+      gateway-lb:
+        default: 192.168.1.43
+        description: Resolve via `kubectl get gateway kserve-gateway -n kserve`
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe for Repository-2 (mapped to vLLM /health)
+      description: >
+        Probe BEFORE issuing chat requests. Returns HTTP 200 with an EMPTY
+        body when the platform is ready (newer vLLM drops the textual body —
+        the 200 status is the contract). Timeout budget: answer in well under
+        5s (local TTFT baseline ~60ms) — no buffering.
+      responses:
+        "200":
+          description: Platform ready
+        "503":
+          description: Engine not ready / starting
+  /models:
+    get:
+      operationId: listModels
+      summary: List served models (OpenAI shape)
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, object, created, owned_by]
+                      properties:
+                        id:
+                          type: string
+                          example: ibm-granite/granite-4.2-3b
+                        object: { type: string }
+                        created: { type: integer }
+                        owned_by:
+                          type: string
+                          example: kserve
+  /chat/completions:
+    post:
+      operationId: createChatCompletion
+      summary: OpenAI-compatible chat completion (non-stream and SSE stream)
+      parameters:
+        - name: x-ai-eg-model
+          in: header
+          required: false
+          schema: { type: string, example: gemini-3.5-flash-lite }
+          description: >
+            OPTIONAL cloud tier-2 opt-in. When set to `gemini-3.5-flash-lite`
+            the request is routed to Google AI Studio (Gemini) instead of the
+            local model. Omit for the local Granite model.
+        - name: x-user-id
+          in: header
+          required: false
+          schema: { type: string }
+          description: >
+            WARNING: if sent, the gateway rate-limits this user to 20
+            req/min (HTTP 429). Repository-2 should NOT send this header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatCompletionRequest"
+      responses:
+        "200":
+          description: >
+            Non-stream: a chat completion object. Stream (`stream: true`):
+            text/event-stream of `data: {...}` chunks ending in
+            `data: [DONE]`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletion"
+            text/event-stream:
+              schema:
+                type: string
+                description: "SSE: `data: <ChatCompletionChunk>\\n\\n` … `data: [DONE]\\n\\n`"
+        "400":
+          description: >
+            Malformed request / validation error (OpenAI `{"error": {...}}`
+            shape, or upstream data-plane unmarshal 400 when overloaded).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Only when `x-user-id` was sent and exceeded 20 req/min
+        "503":
+          description: Admission-control shedding under saturation; retry with backoff
+components:
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      additionalProperties: true
+      properties:
+        model:
+          type: string
+          example: ibm-granite/granite-4.2-3b
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 32768
+          default: 256
+          description: >
+            Output budget. Total context (prompt + completion) is capped at
+            32768 tokens. When thinking is ON the think trace also consumes
+            this budget — allow >=256 for thinking runs.
+        temperature:
+          type: number
+          default: 1.0
+          description: Granite 4.2 prescribes 1.0 / top_p 0.95 for general use; 0.0 for deterministic/structured
+        top_p: { type: number, default: 0.95 }
+        stream:
+          type: boolean
+          default: false
+          description: true → SSE token stream (see 200 text/event-stream)
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tool"
+        tool_choice:
+          description: "auto | required | none | {type: function, function: {name}}"
+        chat_template_kwargs:
+          type: object
+          description: >
+            vLLM extra body passthrough to the Granite chat template.
+            IMPORTANT: enable_thinking defaults TRUE — explicitly send
+            `{"chat_template_kwargs": {"enable_thinking": false}}` for
+            content-only answers (fast/cheap), or true for a reasoning trace.
+          properties:
+            enable_thinking: { type: boolean }
+    ChatMessage:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [system, user, assistant, tool] }
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              description: multimodal parts (text supported)
+        tool_calls: { type: array, description: assistant turn tool calls (tool-call round-trips) }
+        tool_call_id: { type: string, description: tool role: which call this result answers }
+        name: { type: string }
+    Tool:
+      type: object
+      required: [type, function]
+      properties:
+        type: { type: string, enum: [function] }
+        function:
+          type: object
+          required: [name, parameters]
+          properties:
+            name: { type: string }
+            description: { type: string }
+            parameters:
+              type: object
+              description: JSON Schema for arguments (OpenAI shape; qwen3_coder parser)
+    ChatCompletion:
+      type: object
+      required: [id, object, created, model, choices, usage]
+      properties:
+        id: { type: string, example: chatcmpl-... }
+        object: { type: string, enum: [chat.completion] }
+        created: { type: integer }
+        model:
+          type: string
+          example: ibm-granite/granite-4.2-3b
+        choices:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              finish_reason: { type: string, enum: [stop, length] }
+              message:
+                type: object
+                properties:
+                  role: { type: string }
+                  content:
+                    type: [string, "null"]
+                    description: Final answer text (null when thinking consumed the budget)
+                  reasoning:
+                    type: [string, "null"]
+                    description: >
+                      Granite 4.2 think trace when thinking is enabled (this
+                      build surfaces it under `reasoning`, not
+                      `reasoning_content`). Treat as optional context; the
+                      answer is in `content`.
+                  tool_calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        type: { type: string, enum: [function] }
+                        function:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            arguments: { type: string, description: JSON-encoded arguments string }
+        usage:
+          type: object
+          required: [prompt_tokens, completion_tokens, total_tokens]
+          properties:
+            prompt_tokens: { type: integer }
+            completion_tokens: { type: integer }
+            total_tokens: { type: integer }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message: { type: string }
+            type: { type: string }
+            code: { type: [string, "null"] }
