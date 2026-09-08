@@ -1,8 +1,11 @@
 # Kustomize bundle for the Gateway API platform objects (Phase 2).
 #   kubectl apply -k manifests/infra/gateway
+#
+# hello.yaml (the legacy day-1 echo route) is intentionally NOT here — it was
+# replaced by the KServe routes and its gpu-test namespace conflicts with the
+# one-shot gpu smoke test. Keep for manual gateway validation if ever needed.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - gateway.yaml   # GatewayClass + Gateway (LB, port 80)
-  - hello.yaml     # hello-world HTTPRoute + echo backend
+  - gateway.yaml   # GatewayClass + Gateway (LB, ports 80 + 8000)
