@@ -34,23 +34,24 @@ control-plane and worker — "one node", not a single-box HA claim).
 ```mermaid
 flowchart TB
     A["Agent / application<br/>AsyncOpenAI client"]
+    GW["Gateway<br/>Envoy · :80/:8000 · /v1 · /healthz<br/>local default · Gemini header"]
 
-    GW["Gateway<br/>Envoy Gateway · :80/:8000 · /v1 · /healthz<br/>routing: local default · Gemini header<br/>admission / per-user rate limit"]
-    SERVING["Serving plane<br/>KServe LLMInferenceService (control plane)<br/>InferencePool → llm-d EPP :9002 (pick)"]
-    WORKER["Worker<br/>vLLM pod — granite-4.2-3b (AWQ INT4)<br/>fp8 KV cache · 32K context"]
-    OBS["Observability<br/>Prometheus · Grafana<br/>(make observability)"]
-    GM["Gemini tier-2 (cloud)"]
+    OBS["Observability<br/>Prometheus · Grafana<br/>make observability"]
 
-    A -- "OpenAI HTTP<br/>request + SSE response" <--> GW
+    SERVING["Serving plane<br/>KServe · InferencePool<br/>llm-d EPP :9002"]
+    WORKER["Worker<br/>vLLM pod<br/>granite-4.2-3b · 32K ctx"]
+    GM["Gemini tier-2<br/>(cloud)"]
 
-    GW -- "default: local model" --> SERVING --> WORKER
-    GW -- "optional: x-ai-eg-model<br/>gemini-3.5-flash-lite" --> GM
+    A <--> GW
 
-    WORKER -. "response: reverse path<br/>(SSE un-buffered)" .-> GW
+    GW --> SERVING --> WORKER
+    GW -. "x-ai-eg-model header" .-> GM
+
+    WORKER -. "response (SSE)<br/>reverse path" .-> GW
     GM -. "response" .-> GW
 
-    WORKER -. "metrics" .-> OBS
     SERVING -. "EPP metrics" .-> OBS
+    WORKER -. "model metrics" .-> OBS
 ```
 
 Solid arrows are the request path; dashed arrows are the response or
